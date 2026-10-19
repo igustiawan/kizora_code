@@ -1,6 +1,7 @@
 import { CONFIG } from './config.js';
 import { loadState } from './storage.js';
 import { createBot } from './bot.js';
+import { registerBotMenu } from './services/menu.js';
 
 async function main() {
   if (!CONFIG.telegramToken) {
@@ -22,6 +23,14 @@ async function main() {
 
   const me = await bot.api.getMe();
   console.log(`Bot @${me.username} siap. Menunggu pesan...`);
+
+  // Daftarkan menu "/" ke Telegram (sekali saat start)
+  const menuOk = await registerBotMenu(bot.api);
+  console.log(
+    menuOk
+      ? '✅ Menu command terdaftar (cek tombol Menu / ketik /)'
+      : '⚠️ Menu command gagal didaftarkan, bot tetap jalan.'
+  );
 
   await bot.start();
 }

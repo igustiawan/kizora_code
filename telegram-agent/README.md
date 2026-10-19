@@ -64,6 +64,7 @@ npm start
 
 | Perintah | Fungsi |
 |---|---|
+| `/start` | Panduan setup singkat |
 | `/settings` | Lihat & ubah setting (tombol interaktif) |
 | `/setbase <url>` | Set base URL LLM |
 | `/settoken <token>` | Set token LLM |
@@ -75,7 +76,19 @@ npm start
 | `/project` | Info project aktif |
 | `/cancel` | Batalkan tugas berjalan |
 | `/reset` | Hapus riwayat percakapan |
+| `/menu` | Daftarkan ulang menu `/` (kalau tidak muncul) |
 | `/help` | Bantuan |
+
+### Menu `/` di Telegram
+
+Daftar perintah di atas otomatis didaftarkan ke Telegram saat bot start
+(`setMyCommands` untuk chat pribadi, grup, dan admin grup, plus tombol menu
+biru di kiri bawah). Sumber daftarnya ada di `src/services/menu.js`
+(`BOT_COMMANDS`) — kalau menambah `bot.command(...)` baru, tambahkan juga di
+sana supaya muncul di menu.
+
+Kalau menu belum kelihatan di HP/desktop: kirim `/menu`, lalu tutup-buka chat
+(Telegram meng-cache menu per klien).
 
 ## Cara kerja agent
 

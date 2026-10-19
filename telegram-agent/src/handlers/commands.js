@@ -3,11 +3,13 @@ import { getAuthenticatedLogin, listRepos } from '../services/github.js';
 import { cloneOrPullRepo } from '../services/git.js';
 import { testConnection } from '../services/llm.js';
 import { cancelPendingApprovals } from '../services/agent.js';
+import { registerBotMenu, BOT_COMMANDS } from '../services/menu.js';
 import { maskToken } from '../utils/text.js';
 
 const HELP_TEXT = [
   '📖 Daftar perintah:',
   '',
+  '/start — panduan setup singkat',
   '/settings — lihat & ubah setting (tombol interaktif)',
   '/setbase <url> — set base URL LLM (cth: https://api.openai.com/v1)',
   '/settoken <token> — set token LLM',
@@ -21,10 +23,14 @@ const HELP_TEXT = [
   '',
   '/cancel — batalkan tugas yang sedang jalan',
   '/reset — hapus riwayat percakapan',
+  '/menu — daftarkan ulang menu / (kalau tak muncul)',
   '/help — tampilkan bantuan ini',
   '',
   'Setelah setup selesai, kirim pesan biasa = prompt untuk agent.'
 ].join('\n');
+
+// Diekspor untuk test konsistensi antara teks bantuan dan menu "/" Telegram.
+export const HELP_TEXT_FOR_TEST = HELP_TEXT;
 
 function settingsKeyboard() {
   return {
@@ -247,5 +253,14 @@ export function registerCommandHandlers(bot) {
     user.history = [];
     saveState();
     await ctx.reply('🧹 Riwayat percakapan dihapus.');
+  });
+
+  bot.command('menu', async (ctx) => {
+    const ok = await registerBotMenu(ctx.api, BOT_COMMANDS);
+    await ctx.reply(
+      ok
+        ? '✅ Menu "/" sudah didaftarkan ulang.\n\nKalau masih belum muncul, tutup lalu buka lagi chat ini (Telegram meng-cache menu).'
+        : '⚠️ Gagal mendaftarkan menu. Cek log bot.'
+    );
   });
 }

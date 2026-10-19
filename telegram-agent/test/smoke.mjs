@@ -10,6 +10,8 @@ import { simpleGit } from 'simple-git';
 import { executeTool } from '../src/tools/executor.js';
 import { hasChanges, commitAndPush } from '../src/services/git.js';
 import { chunkText, describeToolCall, maskToken } from '../src/utils/text.js';
+import { registerBotMenu, validateCommands, BOT_COMMANDS } from '../src/services/menu.js';
+import { HELP_TEXT_FOR_TEST as HELP_TEXT } from '../src/handlers/commands.js';
 
 let passed = 0;
 let failed = 0;
@@ -124,6 +126,39 @@ const chunks = chunkText('x'.repeat(9500), 4000);
 check('chunkText memecah 9500 char jadi 3 potongan', chunks.length === 3);
 check('describeToolCall ada preview', describeToolCall('write_file', { path: 'a.txt', content: 'isi' }).includes('a.txt'));
 check('maskToken menyensor', maskToken('sk-1234567890abcd').endsWith('abcd') && maskToken('').includes('belum'));
+
+// --- menu command (tanpa jaringan, pakai API palsu) ---
+console.log('menu:');
+check('daftar command valid', validateCommands().length === 0);
+check('command tidak valid terdeteksi', validateCommands([{ command: 'Bad-Cmd', description: 'x' }]).length === 1);
+check('deskripsi kosong terdeteksi', validateCommands([{ command: 'ok', description: '' }]).length === 1);
+check('command duplikat terdeteksi', validateCommands([
+  { command: 'a', description: 'x' },
+  { command: 'a', description: 'y' }
+]).length === 1);
+check('semua command di HELP_TEXT terdaftar di menu', BOT_COMMANDS.every((c) => HELP_TEXT.includes(`/${c.command} `)));
+
+const fakeApi = {
+  calls: [],
+  async setMyCommands(commands, opts) {
+    this.calls.push(['setMyCommands', opts?.scope?.type || 'default', commands.length]);
+  },
+  async setChatMenuButton(payload) {
+    this.calls.push(['setChatMenuButton', payload.menu_button.type]);
+  }
+};
+const menuOk = await registerBotMenu(fakeApi);
+check('registerBotMenu sukses', menuOk === true);
+check('setMyCommands dipanggil 3 scope', fakeApi.calls.filter((c) => c[0] === 'setMyCommands').length === 3);
+check('tombol menu diset ke type commands', fakeApi.calls.some((c) => c[0] === 'setChatMenuButton' && c[1] === 'commands'));
+
+const brokenApi = {
+  async setMyCommands() {
+    throw new Error('network down');
+  },
+  async setChatMenuButton() {}
+};
+check('registerBotMenu tidak melempar saat gagal', (await registerBotMenu(brokenApi)) === false);
 
 console.log(`\n${passed} lulus, ${failed} gagal.`);
 if (failed > 0) process.exit(1);
