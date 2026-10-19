@@ -1,0 +1,20 @@
+{
+  "name": "kizora-telegram-agent",
+  "version": "1.0.0",
+  "description": "Telegram coding-agent bot: konek GitHub, pilih project, prompt LLM, mode full/ask, auto-push",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "smoke": "node test/smoke.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@octokit/rest": "^21.1.0",
+    "dotenv": "^16.4.7",
+    "grammy": "^1.35.0",
+    "simple-git": "^4.0.2"
+  }
+}
