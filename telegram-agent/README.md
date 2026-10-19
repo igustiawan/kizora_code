@@ -133,6 +133,141 @@ telegram-agent/
 
 Folder `data/` (state) dan `workspace/` (repo hasil clone) otomatis dibuat saat runtime dan sudah di-`.gitignore`.
 
+## Deploy di VPS (Ubuntu 22.04/24.04)
+
+### 1. SSH ke VPS
+
+```bash
+ssh root@IP_VPS
+```
+
+### 2. Install dependency sistem
+
+```bash
+apt update && apt install -y git curl
+```
+
+### 3. Install Node.js 22
+
+```bash
+curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+apt install -y nodejs
+node -v   # harus v22.x
+```
+
+### 4. Clone & setup project
+
+```bash
+cd /opt
+git clone https://github.com/igustiawan/kizora_code.git
+cd kizora_code/telegram-agent
+cp .env.example .env
+nano .env
+```
+
+Isi minimal di `.env`:
+
+```
+TELEGRAM_BOT_TOKEN=token_dari_botfather
+ALLOWED_TELEGRAM_IDS=telegram_user_id_kamu
+```
+
+Amankan file env (berisi token):
+
+```bash
+chmod 600 .env
+```
+
+### 5. Konfigurasi git (WAJIB — sering terlupa)
+
+Bot menjalankan `git commit` di workspace project, jadi VPS butuh identitas git. Tanpa ini, auto-commit/auto-push akan gagal:
+
+```bash
+git config --global user.name "Kizora Agent"
+git config --global user.email "agent@kizora.local"
+```
+
+### 6. Install dependencies & tes jalan
+
+```bash
+npm install
+npm start
+```
+
+Kalau log muncul `Bot @namabot siap. Menunggu pesan...`, bot sudah jalan. Stop dulu dengan `Ctrl+C`.
+
+Setelah bot hidup, setup dari Telegram seperti biasa: `/settings` (base URL/token/model LLM) → `/connect <github_token>` → `/repos` → pilih project. Setting ini tersimpan di `data/state.json` di VPS.
+
+### 7. Jalankan 24/7 dengan PM2
+
+```bash
+npm install -g pm2
+pm2 start src/index.js --name kizora-agent
+pm2 save
+pm2 startup    # jalankan command yang muncul di output-nya
+```
+
+Perintah PM2 harian:
+
+```bash
+pm2 status                  # cek status semua proses
+pm2 logs kizora-agent       # lihat log realtime
+pm2 restart kizora-agent    # restart setelah update
+pm2 stop kizora-agent       # stop
+```
+
+### 8. Update ke versi baru
+
+```bash
+cd /opt/kizora_code
+git pull
+cd telegram-agent
+npm install
+pm2 restart kizora-agent
+```
+
+### Alternatif: systemd (tanpa PM2)
+
+Kalau tidak mau pakai PM2, buat service file:
+
+```bash
+nano /etc/systemd/system/kizora-agent.service
+```
+
+Isi:
+
+```ini
+[Unit]
+Description=Kizora Telegram Agent
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/kizora_code/telegram-agent
+ExecStart=/usr/bin/node src/index.js
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Aktifkan:
+
+```bash
+systemctl daemon-reload
+systemctl enable --now kizora-agent
+systemctl status kizora-agent
+journalctl -u kizora-agent -f   # lihat log
+```
+
+### Catatan keamanan VPS
+
+- Bot mengeksekusi shell command berdasarkan output LLM — jangan bagikan token bot atau akses VPS-nya
+- Selalu isi `ALLOWED_TELEGRAM_IDS` supaya hanya user kamu yang bisa pakai
+- Token LLM & GitHub disimpan plaintext di `data/state.json` — batasi akses file itu (`chmod 600 data/state.json`)
+
 ## Testing
 
 ```bash
