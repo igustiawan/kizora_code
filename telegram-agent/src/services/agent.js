@@ -7,6 +7,7 @@ import { hasChanges, commitAndPush, listChangedFiles } from './git.js';
 import { syncAndRestart, checkSyncStatus } from './sync.js';
 import { buildCommitMessage } from '../utils/commit.js';
 import { approvalKeyboard, describeToolCall, sendChunked } from '../utils/text.js';
+import { buildSkillsPrompt } from './skills.js';
 
 /**
  * Approval yang sedang menunggu user (mode ASK).
@@ -52,7 +53,7 @@ export function cancelPendingApprovals(userId) {
 }
 
 function buildSystemPrompt(user) {
-  return [
+  const base = [
     'Kamu adalah agen coding otonom yang bekerja di dalam sebuah project git.',
     `Project: ${user.selectedRepo}`,
     `Workspace: ${user.workspace}`,
@@ -70,6 +71,9 @@ function buildSystemPrompt(user) {
     '- Jelaskan hasil kerja secara ringkas dalam bahasa Indonesia.',
     '- Jawab selalu dalam bahasa Indonesia kecuali user minta lain.'
   ].join('\n');
+
+  // Skill yang dipasang user untuk project ini (kalau ada)
+  return base + buildSkillsPrompt(user, user.selectedRepo);
 }
 
 /**

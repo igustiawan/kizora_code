@@ -5,6 +5,17 @@ import { testConnection } from '../services/llm.js';
 import { cancelPendingApprovals } from '../services/agent.js';
 import { registerBotMenuDetailed, BOT_COMMANDS } from '../services/menu.js';
 import { syncAndRestart, checkSyncStatus, RESTART_EXIT_CODE } from '../services/sync.js';
+import {
+  createSkill,
+  deleteSkill,
+  attachSkill,
+  detachSkill,
+  findSkill,
+  projectChoices,
+  readSkillFromFile,
+  previewSkillContent,
+  MAX_SKILL_NAME
+} from '../services/skills.js';
 import { maskToken } from '../utils/text.js';
 
 const HELP_TEXT = [
@@ -22,6 +33,12 @@ const HELP_TEXT = [
   '/connect <github_token> — konek akun GitHub',
   '/repos — pilih project (auto clone/pull)',
   '/project — info project aktif',
+  '/skills — kelola skill (instruksi khusus per project)',
+  '/skill add <nama> — import skill baru (kirim isinya setelah ini)',
+  '/skill import <path> — import skill dari file di project aktif',
+  '/skill attach <id> — pasang skill ke project pilihan',
+  '/skill detach <id> — lepas skill dari project',
+  '/skill del <id> — hapus skill',
   '/sync — sinkron kode bot dari repo lalu restart',
   '/restart — restart bot',
   '',
@@ -54,7 +71,10 @@ export function settingsKeyboard() {
         { text: '🐙 GitHub', callback_data: 'menu:github' },
         { text: '📁 Pilih Project', callback_data: 'menu:repos' }
       ],
-      [{ text: '🧪 Test Koneksi LLM', callback_data: 'test:llm' }]
+      [
+        { text: '🧠 Skills', callback_data: 'menu:skills' },
+        { text: '🧪 Test Koneksi LLM', callback_data: 'test:llm' }
+      ]
     ]
   };
 }
