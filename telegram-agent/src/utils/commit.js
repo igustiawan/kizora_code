@@ -47,6 +47,9 @@ const TYPE_HINTS = [
 
 export const COMMIT_TITLE_MAX = 72;
 
+/** Prefix Conventional Commits yang dianggap valid. */
+const CONVENTIONAL_RE = /^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([\w./-]+\))?!?:\s+\S/;
+
 /** Tebak tipe commit dari teks prompt. Default: chore. */
 export function detectCommitType(prompt = '') {
   const text = String(prompt).toLowerCase();
@@ -87,7 +90,8 @@ export function buildCommitMessage({ prompt = '', files = [], date = new Date() 
   const summary = summarizePrompt(prompt, 60);
 
   // Judul: "tipe: ringkasan", dipotong rapi biar tidak kepanjangan.
-  let title = `${type}: ${summary}`;
+  // Kalau prompt sudah pakai prefix Conventional Commits, jangan dobel.
+  let title = CONVENTIONAL_RE.test(summary) ? summary : `${type}: ${summary}`;
   if (title.length > COMMIT_TITLE_MAX) {
     title = `${title.slice(0, COMMIT_TITLE_MAX - 1).trimEnd()}…`;
   }
@@ -106,9 +110,6 @@ export function buildCommitMessage({ prompt = '', files = [], date = new Date() 
   const body = bodyLines.join('\n');
   return { type, title, body, message: `${title}\n\n${body}` };
 }
-
-/** Prefix Conventional Commits yang dianggap valid. */
-const CONVENTIONAL_RE = /^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([\w./-]+\))?!?:\s+\S/;
 
 /**
  * Pastikan pesan commit dari LLM punya judul yang jelas.

@@ -22,6 +22,8 @@ export const BOT_COMMANDS = [
   { command: 'project', description: 'Info project aktif' },
   { command: 'cancel', description: 'Batalkan tugas yang berjalan' },
   { command: 'reset', description: 'Hapus riwayat percakapan' },
+  { command: 'sync', description: 'Sinkron kode bot dari repo + restart' },
+  { command: 'restart', description: 'Restart bot' },
   { command: 'menu', description: 'Daftarkan ulang menu / (kalau tak muncul)' }
 ];
 

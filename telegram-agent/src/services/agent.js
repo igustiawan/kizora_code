@@ -4,6 +4,7 @@ import { chatCompletion } from './llm.js';
 import { executeTool } from '../tools/executor.js';
 import { READONLY_TOOLS, toolDefinitions } from '../tools/definitions.js';
 import { hasChanges, commitAndPush, listChangedFiles } from './git.js';
+import { syncAndRestart, checkSyncStatus } from './sync.js';
 import { buildCommitMessage } from '../utils/commit.js';
 import { approvalKeyboard, describeToolCall, sendChunked } from '../utils/text.js';
 
@@ -218,6 +219,40 @@ export async function runAgent(ctx, user, prompt) {
         }
       } catch (err) {
         await ctx.reply(`⚠️ Auto-push gagal: ${err.message}`);
+      }
+    }
+
+    // --- auto-restart: sinkron kode bot dari workspace lalu restart ---
+    // Perubahan kode yang di-commit agent ada di workspace clone, bukan di
+    // direktori bot yang aktif. Tanpa sinkron + restart, fitur baru tidak
+    // pernah ter-load oleh proses yang sedang jalan.
+    if (user.autoRestart !== false) {
+      try {
+        const status = await checkSyncStatus(user.workspace);
+        if (status.ok && status.files.length > 0) {
+          await ctx.reply(
+            [
+              '🔄 Ada perubahan kode bot di repo.',
+              `📁 ${status.files.length} file: ${status.files.slice(0, 5).join(', ')}` +
+                (status.files.length > 5 ? ` (+${status.files.length - 5} lainnya)` : ''),
+              '♻️ Menyinkronkan dan me-restart bot...'
+            ].join('\n')
+          );
+          const r = await syncAndRestart({ workspaceRoot: user.workspace });
+          if (r.synced) {
+            await ctx.reply(
+              [
+                '✅ Bot ter-restart dengan kode terbaru.',
+                `💾 Backup kode lama: ${r.backup ? r.backup.split('/').pop() : '-'}`,
+                '⏳ Tunggu beberapa detik, lalu kirim pesan lagi.'
+              ].join('\n')
+            );
+          } else {
+            await ctx.reply(`⚠️ Sinkron gagal: ${r.reason}`);
+          }
+        }
+      } catch (err) {
+        await ctx.reply(`⚠️ Auto-restart gagal: ${err.message}`);
       }
     }
   } catch (err) {

@@ -33,6 +33,17 @@ function autopushKeyboard() {
   };
 }
 
+function autorestartKeyboard() {
+  return {
+    inline_keyboard: [
+      [
+        { text: '✅ ON', callback_data: 'autorestart:on' },
+        { text: '❌ OFF', callback_data: 'autorestart:off' }
+      ]
+    ]
+  };
+}
+
 export function registerCallbackHandlers(bot) {
   bot.on('callback_query:data', async (ctx) => {
     const data = ctx.callbackQuery.data;
@@ -62,6 +73,12 @@ export function registerCallbackHandlers(bot) {
     if (data === 'menu:autopush') {
       await ctx.answerCallbackQuery();
       return ctx.reply('Auto-push setelah agent selesai?', { reply_markup: autopushKeyboard() });
+    }
+    if (data === 'menu:autorestart') {
+      await ctx.answerCallbackQuery();
+      return ctx.reply('Auto sinkron kode bot + restart setelah agent selesai?', {
+        reply_markup: autorestartKeyboard()
+      });
     }
     if (data === 'menu:github') {
       await ctx.answerCallbackQuery();
@@ -134,6 +151,16 @@ export function registerCallbackHandlers(bot) {
         user.autoPush
           ? '🚀 Auto-push ON: setelah agent selesai, sisa perubahan langsung di-commit & push.'
           : 'Auto-push OFF: perubahan tidak di-push otomatis.'
+      );
+    }
+    if (data.startsWith('autorestart:')) {
+      user.autoRestart = data.slice(13) === 'on';
+      saveState();
+      await ctx.answerCallbackQuery({ text: `Auto-restart: ${user.autoRestart ? 'ON' : 'OFF'}` });
+      return ctx.reply(
+        user.autoRestart
+          ? '♻️ Auto-restart ON: setelah agent selesai, kode bot disinkron dari repo lalu bot restart otomatis.'
+          : 'Auto-restart OFF: perubahan kode bot perlu /sync manual.'
       );
     }
 

@@ -22,6 +22,7 @@ function defaultUser() {
 
     // Auto commit+push setelah agent selesai
     autoPush: false,
+    autoRestart: true,
 
     // Riwayat percakapan (hanya role user/assistant, teks saja)
     history: [],

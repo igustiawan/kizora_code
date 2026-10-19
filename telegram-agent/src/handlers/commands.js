@@ -4,6 +4,7 @@ import { cloneOrPullRepo } from '../services/git.js';
 import { testConnection } from '../services/llm.js';
 import { cancelPendingApprovals } from '../services/agent.js';
 import { registerBotMenuDetailed, BOT_COMMANDS } from '../services/menu.js';
+import { syncAndRestart, checkSyncStatus, RESTART_EXIT_CODE } from '../services/sync.js';
 import { maskToken } from '../utils/text.js';
 
 const HELP_TEXT = [
@@ -16,10 +17,13 @@ const HELP_TEXT = [
   '/setmodel <nama> — set model (cth: gpt-4o, deepseek-chat)',
   '/mode full|ask — mode akses: full = langsung jalan, ask = konfirmasi dulu',
   '/autopush on|off — auto commit+push setelah agent selesai',
+  '/autorestart on|off — auto sinkron kode bot + restart setelah agent selesai',
   '',
   '/connect <github_token> — konek akun GitHub',
   '/repos — pilih project (auto clone/pull)',
   '/project — info project aktif',
+  '/sync — sinkron kode bot dari repo lalu restart',
+  '/restart — restart bot',
   '',
   '/cancel — batalkan tugas yang sedang jalan',
   '/reset — hapus riwayat percakapan',
@@ -43,7 +47,8 @@ export function settingsKeyboard() {
       ],
       [
         { text: '⚙️ Mode Akses', callback_data: 'menu:mode' },
-        { text: '🚀 Auto-push', callback_data: 'menu:autopush' }
+        { text: '🚀 Auto-push', callback_data: 'menu:autopush' },
+        { text: '♻️ Auto-restart', callback_data: 'menu:autorestart' }
       ],
       [
         { text: '🐙 GitHub', callback_data: 'menu:github' },
@@ -65,6 +70,7 @@ export async function showSettings(ctx, user) {
     '',
     `Mode akses   : ${modeLabel}`,
     `Auto-push    : ${user.autoPush ? 'ON' : 'OFF'}`,
+    `Auto-restart : ${user.autoRestart === false ? 'OFF' : 'ON'}`,
     '',
     `GitHub       : ${user.github.username ? '@' + user.github.username : '(belum connect)'}`,
     `Project      : ${user.selectedRepo || '(belum dipilih)'}`
@@ -217,6 +223,26 @@ export function registerCommandHandlers(bot) {
     });
   });
 
+  bot.command('autorestart', async (ctx) => {
+    const value = (ctx.match || '').trim().toLowerCase();
+    const user = getUser(ctx.from.id);
+    if (value === 'on' || value === 'off') {
+      user.autoRestart = value === 'on';
+      saveState();
+      return ctx.reply(`✅ Auto-restart: ${user.autoRestart ? 'ON' : 'OFF'}`);
+    }
+    await ctx.reply('Pakai: /autorestart on  atau  /autorestart off', {
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: '✅ ON', callback_data: 'autorestart:on' },
+            { text: '❌ OFF', callback_data: 'autorestart:off' }
+          ]
+        ]
+      }
+    });
+  });
+
   bot.command('connect', async (ctx) => {
     const token = (ctx.match || '').trim();
     if (!token) {
@@ -305,6 +331,48 @@ export function registerCommandHandlers(bot) {
     user.history = [];
     saveState();
     await ctx.reply('🧹 Riwayat percakapan dihapus.');
+  });
+
+  bot.command('sync', async (ctx) => {
+    const user = getUser(ctx.from.id);
+    if (!user.workspace) {
+      return ctx.reply('⚠️ Belum ada project aktif. Pakai /repos dulu.');
+    }
+    const status = await checkSyncStatus(user.workspace);
+    if (!status.ok) {
+      return ctx.reply(`⚠️ Gagal memeriksa sinkronisasi: ${status.reason}`);
+    }
+    if (status.files.length === 0) {
+      return ctx.reply('✅ Kode bot sudah sinkron dengan repo. Tidak ada yang perlu di-copy.');
+    }
+    await ctx.reply(
+      [
+        `🔄 ${status.files.length} file berbeda dari repo:`,
+        ...status.files.slice(0, 10).map((f) => `  • ${f}`),
+        status.files.length > 10 ? `  (+${status.files.length - 10} lainnya)` : '',
+        '',
+        '♻️ Menyinkronkan dan me-restart bot...'
+      ]
+        .filter(Boolean)
+        .join('\n')
+    );
+    const r = await syncAndRestart({ workspaceRoot: user.workspace });
+    if (r.synced) {
+      await ctx.reply(
+        [
+          '✅ Bot ter-restart dengan kode terbaru.',
+          `💾 Backup kode lama: ${r.backup ? r.backup.split('/').pop() : '-'}`,
+          '⏳ Tunggu beberapa detik, lalu kirim pesan lagi.'
+        ].join('\n')
+      );
+    } else {
+      await ctx.reply(`⚠️ Sinkron gagal: ${r.reason}`);
+    }
+  });
+
+  bot.command('restart', async (ctx) => {
+    await ctx.reply('♻️ Me-restart bot...');
+    setTimeout(() => process.exit(RESTART_EXIT_CODE), 500);
   });
 
   bot.command('menu', async (ctx) => {
