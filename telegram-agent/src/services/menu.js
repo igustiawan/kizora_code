@@ -82,12 +82,19 @@ async function callWithRetry(fn, { retries = 1, delayMs = 500 } = {}) {
  * Hasil: { ok, errors, failed: [{ scope, error }] }
  * - errors : masalah daftar command (validasi lokal, menu tidak dikirim)
  * - failed : panggilan API yang gagal setelah retry
+ *
+ * options.chatId — kalau diisi, menu juga didaftarkan khusus untuk chat itu
+ * (scope { type: 'chat' } + tombol menu per chat). Dipakai /menu supaya chat
+ * yang sedang dipakai pasti punya menu, walau scope global bermasalah.
  */
 export async function registerBotMenuDetailed(
   api,
   commands = BOT_COMMANDS,
-  options = { retries: 1, delayMs: 500 }
+  options = {}
 ) {
+  const { retries = 1, delayMs = 500, chatId } = options;
+  const retryOptions = { retries, delayMs };
+
   const errors = validateCommands(commands);
   if (errors.length) {
     console.warn(`[menu] daftar command dilewati: ${errors.join('; ')}`);
@@ -96,8 +103,17 @@ export async function registerBotMenuDetailed(
 
   const failed = [];
 
-  for (const scope of MENU_SCOPES) {
-    const result = await callWithRetry(() => api.setMyCommands(commands, scope.options), options);
+  const scopes = [...MENU_SCOPES];
+  if (chatId !== undefined && chatId !== null) {
+    scopes.push({
+      key: 'chat',
+      label: `chat ${chatId}`,
+      options: { scope: { type: 'chat', chat_id: chatId } }
+    });
+  }
+
+  for (const scope of scopes) {
+    const result = await callWithRetry(() => api.setMyCommands(commands, scope.options), retryOptions);
     if (!result.ok) {
       failed.push({ scope: scope.label, error: result.error?.message || String(result.error) });
     }
@@ -105,13 +121,26 @@ export async function registerBotMenuDetailed(
 
   const button = await callWithRetry(
     () => api.setChatMenuButton({ menu_button: { type: 'commands' } }),
-    options
+    retryOptions
   );
   if (!button.ok) {
     failed.push({
       scope: 'tombol menu',
       error: button.error?.message || String(button.error)
     });
+  }
+
+  if (chatId !== undefined && chatId !== null) {
+    const chatButton = await callWithRetry(
+      () => api.setChatMenuButton({ chat_id: chatId, menu_button: { type: 'commands' } }),
+      retryOptions
+    );
+    if (!chatButton.ok) {
+      failed.push({
+        scope: `tombol menu chat ${chatId}`,
+        error: chatButton.error?.message || String(chatButton.error)
+      });
+    }
   }
 
   if (failed.length) {

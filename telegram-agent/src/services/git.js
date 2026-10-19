@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { simpleGit } from 'simple-git';
+import { ensureCommitTitle } from '../utils/commit.js';
 
 export const WORKSPACE_ROOT = join(process.cwd(), 'workspace');
 
@@ -41,7 +42,17 @@ export async function hasChanges(dir) {
   return status.files.length > 0;
 }
 
-/** Stage semua, commit, lalu push. Push pakai -u supaya aman walau branch belum punya upstream. */
+/** Daftar path file yang berubah (staged/unstaged/untracked). */
+export async function listChangedFiles(dir) {
+  const git = simpleGit(dir);
+  const status = await git.status();
+  return status.files.map((f) => f.path);
+}
+
+/**
+ * Stage semua, commit, lalu push. Push pakai -u supaya aman walau branch belum punya upstream.
+ * Pesan commit selalu dinormalkan (ensureCommitTitle) agar judulnya jelas.
+ */
 export async function commitAndPush(dir, message) {
   const git = simpleGit(dir);
   const status = await git.status();
@@ -49,7 +60,14 @@ export async function commitAndPush(dir, message) {
     return { committed: false, pushed: false, reason: 'tidak ada perubahan' };
   }
   await git.add('.');
-  const result = await git.commit(message);
+  const finalMessage = ensureCommitTitle(message);
+  const result = await git.commit(finalMessage);
   await git.push(['-u', 'origin', 'HEAD']);
-  return { committed: true, pushed: true, hash: result.commit };
+  return {
+    committed: true,
+    pushed: true,
+    hash: result.commit,
+    message: finalMessage,
+    title: finalMessage.split('\n')[0]
+  };
 }

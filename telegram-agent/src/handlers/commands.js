@@ -23,10 +23,11 @@ const HELP_TEXT = [
   '',
   '/cancel — batalkan tugas yang sedang jalan',
   '/reset — hapus riwayat percakapan',
-  '/menu — daftarkan ulang menu / (kalau tak muncul)',
+  '/menu — pasang ulang tombol & daftar menu (kalau tak muncul)',
   '/help — tampilkan bantuan ini',
   '',
-  'Setelah setup selesai, kirim pesan biasa = prompt untuk agent.'
+  'Setelah setup selesai, kirim pesan biasa = prompt untuk agent.',
+  'Tombol menu permanen muncul di bawah kolom ketik setiap kali /start, /help, atau /menu.'
 ].join('\n');
 
 // Diekspor untuk test konsistensi antara teks bantuan dan menu "/" Telegram.
@@ -72,6 +73,30 @@ export async function showSettings(ctx, user) {
 }
 
 /**
+ * Keyboard tombol permanen (reply keyboard) di bawah kolom ketik.
+ *
+ * Ini yang paling andal: tidak tergantung daftar "/" Telegram (yang di-cache
+ * per klien dan hanya muncul di chat pribadi). Isi tombol sengaja berupa teks
+ * perintah persis, jadi saat ditekan Telegram mengirim "/settings" dan
+ * langsung ditangani bot.command tanpa mapping tambahan.
+ */
+export const REPLY_MENU_BUTTONS = [
+  ['/settings', '/repos'],
+  ['/project', '/mode'],
+  ['/autopush', '/cancel'],
+  ['/help', '/menu']
+];
+
+export function replyMenuKeyboard() {
+  return {
+    keyboard: REPLY_MENU_BUTTONS.map((row) => row.map((text) => ({ text }))),
+    resize_keyboard: true,
+    is_persistent: true,
+    input_field_placeholder: 'Ketik /help atau kirim prompt untuk agent'
+  };
+}
+
+/**
  * Menu tombol (inline) — fallback kalau menu "/" bawaan Telegram tidak muncul
  * di klien user (masalah cache klien) atau pendaftaran menu gagal.
  */
@@ -106,13 +131,17 @@ export function registerCommandHandlers(bot) {
         '3. /repos — pilih project (auto clone)',
         '4. Kirim prompt apa saja — agent kerja di project itu',
         '',
+        'Tombol menu sudah aktif di bawah kolom ketik — tinggal tekan.',
         'Ketik /help untuk daftar lengkap.'
-      ].join('\n')
+      ].join('\n'),
+      // reply keyboard permanen: tombol selalu kelihatan di bawah kolom ketik,
+      // tidak tergantung cache daftar "/" di klien Telegram.
+      { reply_markup: replyMenuKeyboard() }
     );
   });
 
   bot.command('help', async (ctx) => {
-    await ctx.reply(HELP_TEXT);
+    await ctx.reply(HELP_TEXT, { reply_markup: mainMenuKeyboard() });
   });
 
   bot.command('settings', async (ctx) => {
@@ -279,29 +308,35 @@ export function registerCommandHandlers(bot) {
   });
 
   bot.command('menu', async (ctx) => {
-    const detail = await registerBotMenuDetailed(ctx.api, BOT_COMMANDS);
+    // Daftarkan untuk semua scope global + scope chat ini secara eksplisit,
+    // supaya chat ini pasti punya menu walau scope lain bermasalah.
+    const detail = await registerBotMenuDetailed(ctx.api, BOT_COMMANDS, {
+      chatId: ctx.chat?.id
+    });
 
     const lines = detail.ok
       ? [
-          '✅ Menu "/" sudah didaftarkan ulang ke Telegram.',
+          '✅ Menu sudah didaftarkan ulang ke Telegram.',
           '',
-          'Kalau masih belum muncul di daftar "/":',
+          'Kalau daftar "/" masih belum muncul di klien ini:',
           '1. tutup lalu buka lagi chat ini (Telegram meng-cache menu),',
-          '2. atau pakai tombol di bawah ini.',
+          '2. atau langsung pakai tombol di bawah kolom ketik / tombol di pesan ini.',
           '',
           `Total perintah: ${BOT_COMMANDS.length}`
         ]
       : [
           '⚠️ Menu "/" belum berhasil didaftarkan.',
           '',
-          ...[
-            ...detail.errors,
-            ...detail.failed.map((f) => `${f.scope}: ${f.error}`)
-          ].map((e) => `• ${e}`),
+          ...[...detail.errors, ...detail.failed.map((f) => `${f.scope}: ${f.error}`)].map(
+            (e) => `• ${e}`
+          ),
           '',
-          'Sementara itu pakai tombol di bawah ini.'
+          'Sementara itu pakai tombol di bawah kolom ketik / tombol di pesan ini.'
         ];
 
-    await ctx.reply(lines.join('\n'), { reply_markup: mainMenuKeyboard() });
+    // 1) keyboard permanen di bawah kolom ketik (paling andal)
+    await ctx.reply(lines.join('\n'), { reply_markup: replyMenuKeyboard() });
+    // 2) menu inline sebagai jalan pintas tambahan
+    await ctx.reply('📋 Menu cepat:', { reply_markup: mainMenuKeyboard() });
   });
 }

@@ -3,7 +3,8 @@ import { saveState } from '../storage.js';
 import { chatCompletion } from './llm.js';
 import { executeTool } from '../tools/executor.js';
 import { READONLY_TOOLS, toolDefinitions } from '../tools/definitions.js';
-import { hasChanges, commitAndPush } from './git.js';
+import { hasChanges, commitAndPush, listChangedFiles } from './git.js';
+import { buildCommitMessage } from '../utils/commit.js';
 import { approvalKeyboard, describeToolCall, sendChunked } from '../utils/text.js';
 
 /**
@@ -60,6 +61,11 @@ function buildSystemPrompt(user) {
     '- Jangan mengarang isi file yang belum kamu baca.',
     '- Kalau diminta memperbaiki bug, cari dulu file relevan, baca, baru edit.',
     '- Setelah selesai, jalankan test/build kalau project punya.',
+    '- Kalau memanggil git_commit / membuat commit, tulis JUDUL yang jelas dan',
+    '  spesifik dalam format Conventional Commits: "tipe: ringkasan singkat"',
+    '  (tipe: feat, fix, docs, refactor, test, chore, perf, style).',
+    '  Contoh: "fix: cegah crash saat token kosong", "feat: tambah tombol menu Telegram".',
+    '  Jangan pakai judul generik seperti "update", "fix bug", atau "changes".',
     '- Jelaskan hasil kerja secara ringkas dalam bahasa Indonesia.',
     '- Jawab selalu dalam bahasa Indonesia kecuali user minta lain.'
   ].join('\n');
@@ -197,12 +203,17 @@ export async function runAgent(ctx, user, prompt) {
     if (user.autoPush) {
       try {
         if (await hasChanges(user.workspace)) {
-          const r = await commitAndPush(
-            user.workspace,
-            `chore: telegram-agent auto-commit ${new Date().toISOString()}`
-          );
+          const files = await listChangedFiles(user.workspace);
+          const commit = buildCommitMessage({ prompt, files });
+          const r = await commitAndPush(user.workspace, commit.message);
           if (r.pushed) {
-            await ctx.reply(`🚀 Auto-push berhasil (commit ${String(r.hash).slice(0, 7)}).`);
+            await ctx.reply(
+              [
+                '🚀 Auto-push berhasil.',
+                `📝 Commit: ${r.title || commit.title}`,
+                `🔖 Hash: ${String(r.hash).slice(0, 7)}`
+              ].join('\n')
+            );
           }
         }
       } catch (err) {
