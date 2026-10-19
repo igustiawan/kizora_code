@@ -10,8 +10,8 @@ import { simpleGit } from 'simple-git';
 import { executeTool } from '../src/tools/executor.js';
 import { hasChanges, commitAndPush } from '../src/services/git.js';
 import { chunkText, describeToolCall, maskToken } from '../src/utils/text.js';
-import { registerBotMenu, validateCommands, BOT_COMMANDS } from '../src/services/menu.js';
-import { HELP_TEXT_FOR_TEST as HELP_TEXT } from '../src/handlers/commands.js';
+import { registerBotMenu, registerBotMenuDetailed, validateCommands, BOT_COMMANDS } from '../src/services/menu.js';
+import { HELP_TEXT_FOR_TEST as HELP_TEXT, mainMenuKeyboard } from '../src/handlers/commands.js';
 
 let passed = 0;
 let failed = 0;
@@ -158,7 +158,49 @@ const brokenApi = {
   },
   async setChatMenuButton() {}
 };
-check('registerBotMenu tidak melempar saat gagal', (await registerBotMenu(brokenApi)) === false);
+check(
+  'registerBotMenu tidak melempar saat gagal',
+  (await registerBotMenu(brokenApi, BOT_COMMANDS, { retries: 0 })) === false
+);
+
+// satu scope gagal tidak boleh membatalkan scope lain
+const partialApi = {
+  calls: [],
+  async setMyCommands(commands, opts) {
+    const type = opts?.scope?.type || 'default';
+    this.calls.push(type);
+    if (type === 'all_group_chats') throw new Error('scope grup ditolak');
+  },
+  async setChatMenuButton() {
+    this.calls.push('button');
+  }
+};
+const partial = await registerBotMenuDetailed(partialApi, BOT_COMMANDS, { retries: 0 });
+check(
+  'scope gagal dilaporkan di detail',
+  partial.ok === false && partial.failed.length === 1 && partial.failed[0].scope === 'semua grup'
+);
+check(
+  'scope lain + tombol menu tetap didaftarkan',
+  partialApi.calls.includes('default') &&
+    partialApi.calls.includes('all_chat_administrators') &&
+    partialApi.calls.includes('button')
+);
+
+// menu fallback (tombol inline) harus punya handler callback-nya
+const menuKb = JSON.stringify(mainMenuKeyboard());
+check(
+  'menu fallback berisi tombol settings & project',
+  menuKb.includes('menu:settings') && menuKb.includes('menu:repos')
+);
+
+const commandsSrc = readFileSync(new URL('../src/handlers/commands.js', import.meta.url), 'utf8');
+const callbacksSrc = readFileSync(new URL('../src/handlers/callbacks.js', import.meta.url), 'utf8');
+const callbackData = [...commandsSrc.matchAll(/callback_data: '([^']+)'/g)].map((m) => m[1]);
+const orphanButtons = callbackData.filter(
+  (d) => !callbacksSrc.includes(`'${d}'`) && !callbacksSrc.includes(`'${d.split(':')[0]}:'`)
+);
+check('semua tombol punya handler callback', orphanButtons.length === 0, orphanButtons.join(', '));
 
 console.log(`\n${passed} lulus, ${failed} gagal.`);
 if (failed > 0) process.exit(1);

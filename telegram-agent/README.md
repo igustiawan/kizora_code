@@ -87,8 +87,24 @@ biru di kiri bawah). Sumber daftarnya ada di `src/services/menu.js`
 (`BOT_COMMANDS`) — kalau menambah `bot.command(...)` baru, tambahkan juga di
 sana supaya muncul di menu.
 
-Kalau menu belum kelihatan di HP/desktop: kirim `/menu`, lalu tutup-buka chat
-(Telegram meng-cache menu per klien).
+Pendaftaran dilakukan per scope: kalau satu scope gagal (mis. jaringan), scope
+lain tetap didaftarkan. Kalau saat start semuanya gagal, bot mencoba ulang
+otomatis di background (5x, jeda 10 detik) tanpa menahan bot menerima pesan.
+
+Ceklist kalau menu `/` belum kelihatan:
+
+1. **Pastikan kode terbaru benar-benar jalan** — setelah `git pull`, jalankan
+   `pm2 restart kizora-agent`. Bot yang masih proses lama tidak akan
+   mendaftarkan menu baru.
+2. Lihat log startup: harus ada `✅ Menu command terdaftar`. Kalau ada
+   `⚠️ Menu command gagal didaftarkan`, baca baris `[menu] ...` di atasnya —
+   di situ tertulis scope mana yang gagal dan pesan error dari Telegram.
+3. Kirim `/menu` di chat: bot mendaftarkan ulang dan membalas status per
+   scope (kalau gagal, error-nya ikut ditampilkan) + tombol menu inline sebagai
+   jalan pintas.
+4. Tutup lalu buka lagi chat (Telegram meng-cache daftar menu per klien).
+5. Jangan jalankan dua instance bot dengan token yang sama — keduanya berebut
+   `getUpdates` dan perilakunya jadi tidak konsisten.
 
 ## Cara kerja agent
 
@@ -287,7 +303,7 @@ journalctl -u kizora-agent -f   # lihat log
 npm run smoke
 ```
 
-Menjalankan 23 pengecekan: list/read/write/edit file, penolakan path traversal, run command, git init/commit/push ke bare repo lokal, dan util teks. Tidak butuh token apa pun.
+Menjalankan 36 pengecekan: list/read/write/edit file, penolakan path traversal, run command, git init/commit/push ke bare repo lokal, util teks, serta pendaftaran menu (validasi command, isolasi error per scope, tombol fallback). Tidak butuh token apa pun.
 
 ## Catatan keamanan
 

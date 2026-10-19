@@ -1,7 +1,27 @@
 import { CONFIG } from './config.js';
 import { loadState } from './storage.js';
 import { createBot } from './bot.js';
-import { registerBotMenu } from './services/menu.js';
+import { registerBotMenu, registerBotMenuDetailed } from './services/menu.js';
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Kalau pendaftaran menu saat startup gagal (mis. jaringan VPS bermasalah
+ * tepat saat boot), coba lagi di background tanpa menahan bot.start().
+ */
+async function retryMenuInBackground(api, attempts = 5, delayMs = 10_000) {
+  for (let i = 1; i <= attempts; i++) {
+    await sleep(delayMs);
+    const detail = await registerBotMenuDetailed(api);
+    if (detail.ok) {
+      console.log(`✅ Menu command terdaftar (percobaan ulang ke-${i}).`);
+      return;
+    }
+  }
+  console.warn(
+    '[menu] masih gagal setelah percobaan ulang. Kirim /menu dari Telegram untuk mencoba lagi.'
+  );
+}
 
 async function main() {
   if (!CONFIG.telegramToken) {
@@ -29,8 +49,13 @@ async function main() {
   console.log(
     menuOk
       ? '✅ Menu command terdaftar (cek tombol Menu / ketik /)'
-      : '⚠️ Menu command gagal didaftarkan, bot tetap jalan.'
+      : '⚠️ Menu command gagal didaftarkan, bot tetap jalan. Lihat log [menu] di atas — coba /menu lagi nanti.'
   );
+
+  if (!menuOk) {
+    // jangan di-await: bot harus tetap bisa menerima pesan
+    void retryMenuInBackground(bot.api);
+  }
 
   await bot.start();
 }

@@ -3,7 +3,7 @@ import { getAuthenticatedLogin, listRepos } from '../services/github.js';
 import { cloneOrPullRepo } from '../services/git.js';
 import { testConnection } from '../services/llm.js';
 import { cancelPendingApprovals } from '../services/agent.js';
-import { registerBotMenu, BOT_COMMANDS } from '../services/menu.js';
+import { registerBotMenuDetailed, BOT_COMMANDS } from '../services/menu.js';
 import { maskToken } from '../utils/text.js';
 
 const HELP_TEXT = [
@@ -32,7 +32,7 @@ const HELP_TEXT = [
 // Diekspor untuk test konsistensi antara teks bantuan dan menu "/" Telegram.
 export const HELP_TEXT_FOR_TEST = HELP_TEXT;
 
-function settingsKeyboard() {
+export function settingsKeyboard() {
   return {
     inline_keyboard: [
       [
@@ -53,7 +53,7 @@ function settingsKeyboard() {
   };
 }
 
-async function showSettings(ctx, user) {
+export async function showSettings(ctx, user) {
   const modeLabel = user.mode === 'full' ? 'FULL (langsung jalan)' : 'ASK (konfirmasi dulu)';
   const text = [
     '⚙️ Setting saat ini',
@@ -69,6 +69,29 @@ async function showSettings(ctx, user) {
     `Project      : ${user.selectedRepo || '(belum dipilih)'}`
   ].join('\n');
   await ctx.reply(text, { reply_markup: settingsKeyboard() });
+}
+
+/**
+ * Menu tombol (inline) — fallback kalau menu "/" bawaan Telegram tidak muncul
+ * di klien user (masalah cache klien) atau pendaftaran menu gagal.
+ */
+export function mainMenuKeyboard() {
+  return {
+    inline_keyboard: [
+      [
+        { text: '⚙️ Settings', callback_data: 'menu:settings' },
+        { text: '⚙️ Mode Akses', callback_data: 'menu:mode' }
+      ],
+      [
+        { text: '🚀 Auto-push', callback_data: 'menu:autopush' },
+        { text: '🐙 GitHub', callback_data: 'menu:github' }
+      ],
+      [
+        { text: '📁 Pilih Project', callback_data: 'menu:repos' },
+        { text: '🧪 Test LLM', callback_data: 'test:llm' }
+      ]
+    ]
+  };
 }
 
 export function registerCommandHandlers(bot) {
@@ -256,11 +279,29 @@ export function registerCommandHandlers(bot) {
   });
 
   bot.command('menu', async (ctx) => {
-    const ok = await registerBotMenu(ctx.api, BOT_COMMANDS);
-    await ctx.reply(
-      ok
-        ? '✅ Menu "/" sudah didaftarkan ulang.\n\nKalau masih belum muncul, tutup lalu buka lagi chat ini (Telegram meng-cache menu).'
-        : '⚠️ Gagal mendaftarkan menu. Cek log bot.'
-    );
+    const detail = await registerBotMenuDetailed(ctx.api, BOT_COMMANDS);
+
+    const lines = detail.ok
+      ? [
+          '✅ Menu "/" sudah didaftarkan ulang ke Telegram.',
+          '',
+          'Kalau masih belum muncul di daftar "/":',
+          '1. tutup lalu buka lagi chat ini (Telegram meng-cache menu),',
+          '2. atau pakai tombol di bawah ini.',
+          '',
+          `Total perintah: ${BOT_COMMANDS.length}`
+        ]
+      : [
+          '⚠️ Menu "/" belum berhasil didaftarkan.',
+          '',
+          ...[
+            ...detail.errors,
+            ...detail.failed.map((f) => `${f.scope}: ${f.error}`)
+          ].map((e) => `• ${e}`),
+          '',
+          'Sementara itu pakai tombol di bawah ini.'
+        ];
+
+    await ctx.reply(lines.join('\n'), { reply_markup: mainMenuKeyboard() });
   });
 }

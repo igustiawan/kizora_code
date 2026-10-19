@@ -3,6 +3,7 @@ import { settleApproval } from '../services/agent.js';
 import { cloneOrPullRepo } from '../services/git.js';
 import { listRepos } from '../services/github.js';
 import { testConnection } from '../services/llm.js';
+import { showSettings } from './commands.js';
 
 const INPUT_LABELS = {
   base: 'Base URL LLM (contoh: https://api.openai.com/v1)',
@@ -50,6 +51,10 @@ export function registerCallbackHandlers(bot) {
     }
 
     // --- menu tampilan ---
+    if (data === 'menu:settings') {
+      await ctx.answerCallbackQuery();
+      return showSettings(ctx, user);
+    }
     if (data === 'menu:mode') {
       await ctx.answerCallbackQuery();
       return ctx.reply('Pilih mode akses:', { reply_markup: modeKeyboard() });
