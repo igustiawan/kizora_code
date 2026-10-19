@@ -103,6 +103,7 @@ export async function runAgent(ctx, user, prompt) {
 
   let statusMsg = null;
   let finalText = '';
+  let fallbackNotified = false;
 
   try {
     statusMsg = await ctx.reply(`🤖 Agent mulai kerja di ${user.selectedRepo}...`);
@@ -120,6 +121,17 @@ export async function runAgent(ctx, user, prompt) {
         messages,
         tools: toolDefinitions
       });
+
+      // Kalau jawaban datang dari model cadangan, beri tahu user sekali saja
+      // supaya dia tahu relay sedang bermasalah (bukan settingnya yang salah).
+      const usedModel = res.__usedModel;
+      if (usedModel && usedModel !== user.llm.model && !fallbackNotified) {
+        fallbackNotified = true;
+        await ctx.reply(
+          `⚠️ Model utama "${user.llm.model}" sedang tidak merespons. ` +
+            `Sementara ini jawaban dihasilkan oleh "${usedModel}".`
+        );
+      }
 
       const msg = res.choices?.[0]?.message;
       if (!msg) throw new Error('Response LLM tidak valid (tidak ada choices[0].message).');
