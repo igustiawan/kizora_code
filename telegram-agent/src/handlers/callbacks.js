@@ -3,7 +3,14 @@ import { settleApproval } from '../services/agent.js';
 import { cloneOrPullRepo } from '../services/git.js';
 import { listRepos } from '../services/github.js';
 import { testConnection } from '../services/llm.js';
-import { showSettings } from './commands.js';
+import {
+  findSkill,
+  attachSkill,
+  detachSkill,
+  deleteSkill,
+  projectChoices
+} from '../services/skills.js';
+import { showSettings, showSkills } from './commands.js';
 
 const INPUT_LABELS = {
   base: 'Base URL LLM (contoh: https://api.openai.com/v1)',
@@ -88,6 +95,10 @@ export function registerCallbackHandlers(bot) {
           : 'Konek GitHub dengan: /connect <github_token>'
       );
     }
+    if (data === 'menu:skills') {
+      await ctx.answerCallbackQuery();
+      return showSkills(ctx, user);
+    }
     if (data === 'menu:repos') {
       await ctx.answerCallbackQuery();
       if (!user.github.token) {
@@ -115,6 +126,99 @@ export function registerCallbackHandlers(bot) {
           `❌ Gagal mengambil repo: ${err.message}`
         );
       }
+      return;
+    }
+
+    // --- skill library: add | attach:<id> | detach:<id> | del:<id> | pick:<id>:<n> ---
+    if (data.startsWith('skill:')) {
+      const action = data.slice(6);
+
+      if (action === 'add') {
+        await ctx.answerCallbackQuery();
+        return ctx.reply('Ketik: /skill add <nama skill>\nLalu kirim isi instruksinya.');
+      }
+
+      if (action.startsWith('attach:')) {
+        const id = action.slice(7);
+        const skill = findSkill(user, id);
+        if (!skill) {
+          await ctx.answerCallbackQuery({ text: 'Skill tidak ditemukan' });
+          return ctx.reply('❌ Skill tidak ditemukan (mungkin sudah dihapus). Daftar: /skills');
+        }
+        const choices = projectChoices(user);
+        if (!choices.length) {
+          await ctx.answerCallbackQuery();
+          return ctx.reply('⚠️ Belum ada project. Pilih dulu: /repos');
+        }
+        // Lebih dari satu project -> tampilkan pilihan dulu
+        if (choices.length > 1) {
+          await ctx.answerCallbackQuery();
+          return ctx.reply(`Pasang "${skill.name}" ke project mana?`, {
+            reply_markup: {
+              inline_keyboard: choices.map((repo, i) => [
+                { text: repo, callback_data: `skill:pick:${skill.id}:${i}` }
+              ])
+            }
+          });
+        }
+        const r = attachSkill(user, skill.id, choices[0]);
+        saveState();
+        await ctx.answerCallbackQuery({ text: r.already ? 'Sudah terpasang' : 'Dipasang' });
+        return ctx.reply(
+          r.ok
+            ? `✅ "${skill.name}" ${r.already ? 'sudah ' : ''}terpasang di ${r.project}.`
+            : `❌ ${r.reason}`
+        );
+      }
+
+      if (action.startsWith('pick:')) {
+        const rest = action.slice(5);
+        const sep = rest.lastIndexOf(':');
+        const id = rest.slice(0, sep);
+        const idx = Number(rest.slice(sep + 1));
+        const skill = findSkill(user, id);
+        const repo = projectChoices(user)[idx];
+        if (!skill || !repo) {
+          await ctx.answerCallbackQuery({ text: 'Pilihan kedaluwarsa' });
+          return ctx.reply('❌ Pilihan tidak valid. Coba lagi: /skills');
+        }
+        const r = attachSkill(user, skill.id, repo);
+        saveState();
+        await ctx.answerCallbackQuery({ text: 'Dipasang' });
+        return ctx.reply(`✅ "${skill.name}" terpasang di ${repo}.`);
+      }
+
+      if (action.startsWith('detach:')) {
+        const id = action.slice(7);
+        const skill = findSkill(user, id);
+        if (!skill) {
+          await ctx.answerCallbackQuery({ text: 'Skill tidak ditemukan' });
+          return ctx.reply('❌ Skill tidak ditemukan. Daftar: /skills');
+        }
+        const r = detachSkill(user, skill.id, user.selectedRepo || '');
+        saveState();
+        await ctx.answerCallbackQuery({ text: 'Dilepas' });
+        return ctx.reply(
+          r.ok
+            ? `✅ "${skill.name}" dilepas${r.project ? ` dari ${r.project}` : ' dari semua project'}.`
+            : `❌ ${r.reason}`
+        );
+      }
+
+      if (action.startsWith('del:')) {
+        const id = action.slice(4);
+        const skill = findSkill(user, id);
+        if (!skill) {
+          await ctx.answerCallbackQuery({ text: 'Skill tidak ditemukan' });
+          return ctx.reply('❌ Skill tidak ditemukan. Daftar: /skills');
+        }
+        deleteSkill(user, skill.id);
+        saveState();
+        await ctx.answerCallbackQuery({ text: 'Dihapus' });
+        return ctx.reply(`🗑️ Skill "${skill.name}" dihapus.`);
+      }
+
+      await ctx.answerCallbackQuery({ text: 'Aksi skill tidak dikenal' });
       return;
     }
 
@@ -173,6 +277,9 @@ export function registerCallbackHandlers(bot) {
         const { path, pulled } = await cloneOrPullRepo(fullName, user.github.token);
         user.selectedRepo = fullName;
         user.workspace = path;
+        // Catat project yang pernah dipakai (dipakai /skill attach & projectChoices)
+        if (!Array.isArray(user.knownProjects)) user.knownProjects = [];
+        if (!user.knownProjects.includes(fullName)) user.knownProjects.push(fullName);
         user.history = [];
         saveState();
         await ctx.api.editMessageText(

@@ -20,11 +20,15 @@ export const BOT_COMMANDS = [
   { command: 'connect', description: 'Konek akun GitHub (token)' },
   { command: 'repos', description: 'Pilih project (auto clone/pull)' },
   { command: 'project', description: 'Info project aktif' },
+  { command: 'skills', description: 'Kelola skill (instruksi per project)' },
+  { command: 'skill', description: 'Tambah/pasang/lepas/hapus skill' },
   { command: 'cancel', description: 'Batalkan tugas yang berjalan' },
+  { command: 'batal', description: 'Batalkan input yang menunggu (skill/setting)' },
   { command: 'reset', description: 'Hapus riwayat percakapan' },
   { command: 'sync', description: 'Sinkron kode bot dari repo + restart' },
   { command: 'restart', description: 'Restart bot' },
-  { command: 'menu', description: 'Daftarkan ulang menu / (kalau tak muncul)' }
+  { command: 'menu', description: 'Daftarkan ulang menu / (kalau tak muncul)' },
+  { command: 'tutup', description: 'Tutup tombol menu di bawah kolom ketik' }
 ];
 
 /**

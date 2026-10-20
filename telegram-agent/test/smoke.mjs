@@ -11,7 +11,12 @@ import { executeTool } from '../src/tools/executor.js';
 import { hasChanges, commitAndPush } from '../src/services/git.js';
 import { chunkText, describeToolCall, maskToken } from '../src/utils/text.js';
 import { registerBotMenu, registerBotMenuDetailed, validateCommands, BOT_COMMANDS } from '../src/services/menu.js';
-import { HELP_TEXT_FOR_TEST as HELP_TEXT, mainMenuKeyboard } from '../src/handlers/commands.js';
+import {
+  HELP_TEXT_FOR_TEST as HELP_TEXT,
+  mainMenuKeyboard,
+  replyMenuKeyboard,
+  CLOSE_MENU_TEXT
+} from '../src/handlers/commands.js';
 
 let passed = 0;
 let failed = 0;
@@ -193,6 +198,60 @@ check(
   'menu fallback berisi tombol settings & project',
   menuKb.includes('menu:settings') && menuKb.includes('menu:repos')
 );
+
+// --- tutup menu: reply keyboard harus bisa diclose ---
+console.log('tutup menu:');
+const replyKb = JSON.stringify(replyMenuKeyboard());
+check('tombol Tutup Menu ada di reply keyboard', replyKb.includes(CLOSE_MENU_TEXT));
+check('/tutup terdaftar di menu Telegram', BOT_COMMANDS.some((c) => c.command === 'tutup'));
+check('/tutup disebut di HELP_TEXT', HELP_TEXT.includes('/tutup '));
+
+const messagesSrc = readFileSync(new URL('../src/handlers/messages.js', import.meta.url), 'utf8');
+check('message handler memakai remove_keyboard', messagesSrc.includes('remove_keyboard'));
+check(
+  'tombol Tutup Menu dicek sebelum wizard setting',
+  messagesSrc.indexOf('CLOSE_MENU_TEXT') < messagesSrc.indexOf('pendingInput')
+);
+
+const commandsSrcFull = readFileSync(new URL('../src/handlers/commands.js', import.meta.url), 'utf8');
+check('command /tutup terdaftar di bot', commandsSrcFull.includes("bot.command('tutup'"));
+
+// --- skill handlers (tombol 🧠 Skills di /settings harus punya handler) ---
+console.log('skills:');
+check('command /skills terdaftar di menu', BOT_COMMANDS.some((c) => c.command === 'skills'));
+check('command /skill terdaftar di menu', BOT_COMMANDS.some((c) => c.command === 'skill'));
+check('command /batal terdaftar di menu', BOT_COMMANDS.some((c) => c.command === 'batal'));
+check('/skills disebut di HELP_TEXT', HELP_TEXT.includes('/skills '));
+check('/skill disebut di HELP_TEXT', HELP_TEXT.includes('/skill '));
+check('/batal disebut di HELP_TEXT', HELP_TEXT.includes('/batal '));
+check('command /skills terdaftar di bot', commandsSrcFull.includes("bot.command('skills'"));
+check('command /skill terdaftar di bot', commandsSrcFull.includes("bot.command('skill'"));
+check('command /batal terdaftar di bot', commandsSrcFull.includes("bot.command('batal'"));
+
+// wizard skill: pesan isi skill harus ditangani di message handler
+check(
+  'wizard skill content ditangani',
+  messagesSrc.includes("pendingSkill") && messagesSrc.includes('createSkill')
+);
+
+// logika skill service (tanpa jaringan)
+const { createSkill, attachSkill, detachSkill, findSkill, skillsForProject, buildSkillsPrompt } =
+  await import('../src/services/skills.js');
+const fakeUser = { skills: [], knownProjects: ['owner/repo-a', 'owner/repo-b'], selectedRepo: 'owner/repo-a' };
+createSkill(fakeUser, { name: 'React conventions', content: 'Pakai functional component.' });
+createSkill(fakeUser, { name: 'Commit style', content: 'Commit pakai conventional commits.' });
+check('skill tersimpan', fakeUser.skills.length === 2);
+check('nama sama -> update bukan duplikat', (() => {
+  createSkill(fakeUser, { name: 'react conventions', content: 'Isi baru.' });
+  return fakeUser.skills.length === 2 && fakeUser.skills[0].content === 'Isi baru.';
+})());
+check('attach ke project', attachSkill(fakeUser, 'react-conventions', 'owner/repo-a').ok === true);
+check('skillsForProject filter benar', skillsForProject(fakeUser, 'owner/repo-a').length === 1);
+check('skillsForProject project lain kosong', skillsForProject(fakeUser, 'owner/repo-b').length === 0);
+check('buildSkillsPrompt berisi nama skill', buildSkillsPrompt(fakeUser, 'owner/repo-a').includes('React conventions'));
+check('buildSkillsPrompt kosong tanpa skill', buildSkillsPrompt(fakeUser, 'owner/repo-b') === '');
+check('detach bekerja', detachSkill(fakeUser, 'react-conventions', 'owner/repo-a').ok === true);
+check('findSkill by id', findSkill(fakeUser, 'commit-style')?.name === 'Commit style');
 
 const commandsSrc = readFileSync(new URL('../src/handlers/commands.js', import.meta.url), 'utf8');
 const callbacksSrc = readFileSync(new URL('../src/handlers/callbacks.js', import.meta.url), 'utf8');

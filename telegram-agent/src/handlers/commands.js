@@ -43,12 +43,15 @@ const HELP_TEXT = [
   '/restart — restart bot',
   '',
   '/cancel — batalkan tugas yang sedang jalan',
+  '/batal — batalkan input yang sedang menunggu (skill/setting)',
   '/reset — hapus riwayat percakapan',
   '/menu — pasang ulang tombol & daftar menu (kalau tak muncul)',
+  '/tutup — tutup tombol menu di bawah kolom ketik',
   '/help — tampilkan bantuan ini',
   '',
   'Setelah setup selesai, kirim pesan biasa = prompt untuk agent.',
-  'Tombol menu permanen muncul di bawah kolom ketik setiap kali /start, /help, atau /menu.'
+  'Tombol menu muncul di bawah kolom ketik setiap kali /start, /help, atau /menu.',
+  'Tekan tombol ❌ Tutup Menu atau ketik /tutup kalau mau menyembunyikannya.'
 ].join('\n');
 
 // Diekspor untuk test konsistensi antara teks bantuan dan menu "/" Telegram.
@@ -99,6 +102,56 @@ export async function showSettings(ctx, user) {
 }
 
 /**
+ * Tampilan daftar skill (dipakai /skills dan tombol 🧠 Skills di /settings).
+ * Setiap skill punya tombol pasang/lepas/hapus.
+ */
+export async function showSkills(ctx, user) {
+  const skills = Array.isArray(user.skills) ? user.skills : [];
+
+  if (!skills.length) {
+    return ctx.reply(
+      [
+        '🧠 Belum ada skill.',
+        '',
+        'Skill = instruksi khusus yang dipasang ke project (konvensi kode,',
+        'cara commit, perintah test, gaya penulisan, dll).',
+        '',
+        'Tambah: /skill add <nama>',
+        'Impor dari file project: /skill import <path>'
+      ].join('\n'),
+      {
+        reply_markup: {
+          inline_keyboard: [[{ text: '➕ Tambah Skill', callback_data: 'skill:add' }]]
+        }
+      }
+    );
+  }
+
+  const lines = [`🧠 Skill library (${skills.length})`, ''];
+  const keyboard = [];
+
+  skills.forEach((s, i) => {
+    const attached = (s.projects || []).length
+      ? `📌 ${s.projects.join(', ')}`
+      : '⚪ belum terpasang';
+    lines.push(`${i + 1}. ${s.name} — ${attached}`);
+    if (s.description) lines.push(`   ${s.description}`);
+    const preview = previewSkillContent(s.content, 120);
+    if (preview) lines.push(`   "${preview}"`);
+    lines.push('');
+    keyboard.push([
+      { text: `📌 #${i + 1} Pasang`, callback_data: `skill:attach:${s.id}` },
+      { text: '🔓', callback_data: `skill:detach:${s.id}` },
+      { text: '🗑️', callback_data: `skill:del:${s.id}` }
+    ]);
+  });
+
+  keyboard.push([{ text: '➕ Tambah Skill', callback_data: 'skill:add' }]);
+
+  await ctx.reply(lines.join('\n'), { reply_markup: { inline_keyboard: keyboard } });
+}
+
+/**
  * Keyboard tombol permanen (reply keyboard) di bawah kolom ketik.
  *
  * Ini yang paling andal: tidak tergantung daftar "/" Telegram (yang di-cache
@@ -106,11 +159,19 @@ export async function showSettings(ctx, user) {
  * perintah persis, jadi saat ditekan Telegram mengirim "/settings" dan
  * langsung ditangani bot.command tanpa mapping tambahan.
  */
+/**
+ * Teks tombol "Tutup Menu" di reply keyboard. Diekspor supaya message
+ * handler bisa mengenalinya (tombol reply keyboard dikirim sebagai pesan
+ * teks biasa, bukan command).
+ */
+export const CLOSE_MENU_TEXT = '❌ Tutup Menu';
+
 export const REPLY_MENU_BUTTONS = [
   ['/settings', '/repos'],
   ['/project', '/mode'],
   ['/autopush', '/cancel'],
-  ['/help', '/menu']
+  ['/help', '/menu'],
+  [CLOSE_MENU_TEXT]
 ];
 
 export function replyMenuKeyboard() {
@@ -410,7 +471,8 @@ export function registerCommandHandlers(bot) {
           '1. tutup lalu buka lagi chat ini (Telegram meng-cache menu),',
           '2. atau langsung pakai tombol di bawah kolom ketik / tombol di pesan ini.',
           '',
-          `Total perintah: ${BOT_COMMANDS.length}`
+          `Total perintah: ${BOT_COMMANDS.length}`,
+          'Tekan ❌ Tutup Menu atau /tutup kalau mau menyembunyikan tombol bawah.'
         ]
       : [
           '⚠️ Menu "/" belum berhasil didaftarkan.',
@@ -419,12 +481,132 @@ export function registerCommandHandlers(bot) {
             (e) => `• ${e}`
           ),
           '',
-          'Sementara itu pakai tombol di bawah kolom ketik / tombol di pesan ini.'
+          'Sementara itu pakai tombol di bawah kolom ketik / tombol di pesan ini.',
+          'Tekan ❌ Tutup Menu atau /tutup kalau mau menyembunyikan tombol bawah.'
         ];
 
     // 1) keyboard permanen di bawah kolom ketik (paling andal)
     await ctx.reply(lines.join('\n'), { reply_markup: replyMenuKeyboard() });
     // 2) menu inline sebagai jalan pintas tambahan
     await ctx.reply('📋 Menu cepat:', { reply_markup: mainMenuKeyboard() });
+  });
+
+  bot.command('tutup', async (ctx) => {
+    // Hapus reply keyboard dari chat ini. Keyboard persisten cuma bisa
+    // dilepas dengan remove_keyboard — tidak ada cara lain dari sisi bot.
+    await ctx.reply('✅ Tombol menu ditutup. Ketik /menu kalau mau memunculkan lagi.', {
+      reply_markup: { remove_keyboard: true }
+    });
+  });
+
+  bot.command('batal', async (ctx) => {
+    // Escape hatch untuk wizard (skill content / setting) yang menggantung.
+    const user = getUser(ctx.from.id);
+    const had = user.pendingInput || user.pendingSkill;
+    user.pendingInput = null;
+    user.pendingSkill = null;
+    saveState();
+    await ctx.reply(had ? '✅ Input dibatalkan.' : 'Tidak ada input yang sedang menunggu.');
+  });
+
+  bot.command('skills', async (ctx) => {
+    await showSkills(ctx, getUser(ctx.from.id));
+  });
+
+  bot.command('skill', async (ctx) => {
+    const user = getUser(ctx.from.id);
+    const [sub, ...rest] = (ctx.match || '')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+
+    // /skill add <nama> -> minta isi skill lewat pesan berikutnya
+    if (sub === 'add') {
+      const name = rest.join(' ').trim();
+      if (!name) return ctx.reply('Pakai: /skill add <nama skill>');
+      if (name.length > MAX_SKILL_NAME) {
+        return ctx.reply(`❌ Nama skill maksimal ${MAX_SKILL_NAME} karakter.`);
+      }
+      user.pendingSkill = { step: 'content', name };
+      saveState();
+      return ctx.reply(
+        `Kirim isi skill "${name}" sekarang.\n\n` +
+          'Tulis instruksi sejelas mungkin (konvensi, aturan, contoh). Teks panjang boleh.\n' +
+          'Kirim /batal kalau ingin membatalkan.'
+      );
+    }
+
+    // /skill import <path> -> ambil isi skill dari file di project aktif
+    if (sub === 'import') {
+      const path = rest.join(' ').trim();
+      if (!path) return ctx.reply('Pakai: /skill import <path file di project aktif>');
+      if (!user.workspace) return ctx.reply('⚠️ Belum ada project aktif. Pilih dulu: /repos');
+      try {
+        const { name, content, path: from } = readSkillFromFile(user.workspace, path);
+        const { skill, updated } = createSkill(user, { name, content });
+        saveState();
+        return ctx.reply(
+          `✅ Skill "${skill.name}" ${updated ? 'diperbarui' : 'disimpan'} (dari ${from}).\n` +
+            `Pasang ke project aktif: /skill attach ${skill.id}`
+        );
+      } catch (err) {
+        return ctx.reply(`❌ ${err.message}`);
+      }
+    }
+
+    // /skill attach <id> -> pasang ke project aktif
+    if (sub === 'attach') {
+      const id = rest[0];
+      if (!id) return ctx.reply('Pakai: /skill attach <id> (lihat daftar: /skills)');
+      const skill = findSkill(user, id);
+      if (!skill) return ctx.reply(`❌ Skill "${id}" tidak ditemukan. Daftar: /skills`);
+      const choices = projectChoices(user);
+      if (!choices.length) return ctx.reply('⚠️ Belum ada project. Pilih dulu: /repos');
+      const r = attachSkill(user, skill.id, choices[0]);
+      saveState();
+      if (!r.ok) return ctx.reply(`❌ ${r.reason}`);
+      return ctx.reply(
+        r.already
+          ? `ℹ️ "${skill.name}" sudah terpasang di ${r.project}.`
+          : `✅ "${skill.name}" dipasang ke ${r.project}.`
+      );
+    }
+
+    // /skill detach <id> -> lepas dari project aktif (atau semua kalau tidak ada)
+    if (sub === 'detach') {
+      const id = rest[0];
+      if (!id) return ctx.reply('Pakai: /skill detach <id>');
+      const skill = findSkill(user, id);
+      if (!skill) return ctx.reply(`❌ Skill "${id}" tidak ditemukan.`);
+      const r = detachSkill(user, skill.id, user.selectedRepo || '');
+      saveState();
+      if (!r.ok) return ctx.reply(`❌ ${r.reason}`);
+      return ctx.reply(
+        `✅ "${skill.name}" dilepas${r.project ? ` dari ${r.project}` : ' dari semua project'}.`
+      );
+    }
+
+    // /skill del <id> -> hapus skill
+    if (sub === 'del' || sub === 'delete' || sub === 'hapus') {
+      const id = rest[0];
+      if (!id) return ctx.reply('Pakai: /skill del <id>');
+      const skill = findSkill(user, id);
+      if (!skill) return ctx.reply(`❌ Skill "${id}" tidak ditemukan.`);
+      deleteSkill(user, skill.id);
+      saveState();
+      return ctx.reply(`🗑️ Skill "${skill.name}" dihapus.`);
+    }
+
+    return ctx.reply(
+      [
+        'Pakai:',
+        '/skills — lihat daftar skill',
+        '/skill add <nama> — tambah (kirim isinya setelahnya)',
+        '/skill import <path> — impor dari file project aktif',
+        '/skill attach <id> — pasang ke project aktif',
+        '/skill detach <id> — lepas dari project aktif',
+        '/skill del <id> — hapus skill'
+      ].join('\n')
+    );
   });
 }

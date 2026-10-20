@@ -1,6 +1,7 @@
 import { getUser, saveState } from '../storage.js';
 import { runAgent } from '../services/agent.js';
-import { replyMenuKeyboard } from './commands.js';
+import { createSkill } from '../services/skills.js';
+import { replyMenuKeyboard, CLOSE_MENU_TEXT } from './commands.js';
 
 export function registerMessageHandlers(bot) {
   bot.on('message:text', async (ctx) => {
@@ -11,6 +12,15 @@ export function registerMessageHandlers(bot) {
     if (text.startsWith('/')) {
       return ctx.reply('Perintah tidak dikenal. Ketik /help atau pakai tombol di bawah.', {
         reply_markup: replyMenuKeyboard()
+      });
+    }
+
+    // Tombol "Tutup Menu" dari reply keyboard. Dicek SEBELUM wizard setting
+    // supaya teksnya tidak terkonsumsi sebagai nilai setting yang sedang
+    // menunggu input user.
+    if (text.trim() === CLOSE_MENU_TEXT) {
+      return ctx.reply('✅ Tombol menu ditutup. Ketik /menu kalau mau memunculkan lagi.', {
+        reply_markup: { remove_keyboard: true }
       });
     }
 
@@ -26,6 +36,24 @@ export function registerMessageHandlers(bot) {
 
       saveState();
       await ctx.reply(`✅ Tersimpan. Lihat semua setting: /settings`);
+      return;
+    }
+
+    // Wizard skill: pesan berikutnya dianggap isi skill yang sedang dibuat
+    if (user.pendingSkill?.step === 'content') {
+      const name = user.pendingSkill.name;
+      user.pendingSkill = null;
+      try {
+        const { skill, updated } = createSkill(user, { name, content: text });
+        saveState();
+        await ctx.reply(
+          `✅ Skill "${skill.name}" ${updated ? 'diperbarui' : 'disimpan'}.\n\n` +
+            `Pasang ke project aktif: /skill attach ${skill.id}\n` +
+            'Lihat semua skill: /skills'
+        );
+      } catch (err) {
+        await ctx.reply(`❌ ${err.message}`);
+      }
       return;
     }
 
