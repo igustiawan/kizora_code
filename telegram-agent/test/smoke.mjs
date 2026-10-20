@@ -3,9 +3,12 @@
  * Tidak butuh token Telegram/LLM/GitHub.
  * Jalankan: npm run smoke
  */
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { exec } from 'node:child_process';
+import { spawn } from 'node:child_process';
+import { promisify } from 'node:util';
 import { simpleGit } from 'simple-git';
 import { executeTool } from '../src/tools/executor.js';
 import { hasChanges, commitAndPush } from '../src/services/git.js';
@@ -22,6 +25,8 @@ import {
 
 let passed = 0;
 let failed = 0;
+
+const execAsync = promisify(exec);
 
 function check(label, condition, detail = '') {
   if (condition) {
@@ -373,6 +378,112 @@ const orphanButtons = callbackData.filter(
   (d) => !callbacksSrc.includes(`'${d}'`) && !callbacksSrc.includes(`'${d.split(':')[0]}:'`)
 );
 check('semua tombol punya handler callback', orphanButtons.length === 0, orphanButtons.join(', '));
+
+// --- restart: harus hidup kembali dengan maupun tanpa supervisor ---
+console.log('restart:');
+const { isUnderSupervisor, planRestart, restartBot, waitForPredecessor, RESTART_EXIT_CODE } =
+  await import('../src/utils/restart.js');
+
+check('tanpa supervisor terdeteksi false', isUnderSupervisor({}) === false);
+check('PM2_HOME -> supervisor', isUnderSupervisor({ PM2_HOME: '/home/x/.pm2' }) === true);
+check('pm_id -> supervisor', isUnderSupervisor({ pm_id: '0' }) === true);
+check('INVOCATION_ID (systemd) -> supervisor', isUnderSupervisor({ INVOCATION_ID: 'abc' }) === true);
+check('JOURNAL_STREAM (systemd) -> supervisor', isUnderSupervisor({ JOURNAL_STREAM: '8:1' }) === true);
+
+// planRestart: pilih mode tanpa efek samping (tidak spawn/mati).
+// Env di-inject sebagai parameter — JANGAN mutasi process.env, karena
+// process.env.X = ... menulis ke OS env asli dan spawn tanpa opsi env
+// mewariskan OS env itu (bocor ke proses anak tes).
+const planNoSup = planRestart({});
+check(
+  'tanpa supervisor -> rencana respawn',
+  planNoSup.mode === 'respawn' && planNoSup.entry === process.argv[1]
+);
+check('dengan PM2 -> rencana supervisor', planRestart({ PM2_HOME: '/tmp/fake-pm2' }).mode === 'supervisor');
+
+// restartBot mode supervisor: keluar dengan kode 75 (di-stub supaya tes tidak mati)
+const realExit = process.exit;
+const exitCodes = [];
+process.exit = (code) => {
+  exitCodes.push(code);
+};
+const r = restartBot({ delayMs: 30, env: { PM2_HOME: '/tmp/fake-pm2' } });
+await new Promise((resolve) => setTimeout(resolve, 200));
+process.exit = realExit;
+check('restartBot mode supervisor', r.mode === 'supervisor');
+check('keluar dengan kode 75 (supervisor restart)', exitCodes.length === 1 && exitCodes[0] === RESTART_EXIT_CODE && RESTART_EXIT_CODE === 75);
+
+// waitForPredecessor: env tidak diset -> langsung jalan (0 ms)
+const waited = await waitForPredecessor(() => {});
+check('waitForPredecessor 0 tanpa env respawn', waited === 0);
+
+// handler /restart & index.js memakai utility baru (bukan process.exit langsung)
+check('/restart pakai restartBot', commandsSrc.includes('restartBot()'));
+check('index.js tunggu proses lama mati', readFileSync(new URL('../src/index.js', import.meta.url), 'utf8').includes('waitForPredecessor'));
+check('sync.js pakai restartBot', readFileSync(new URL('../src/services/sync.js', import.meta.url), 'utf8').includes('restartBot()'));
+
+// respawn nyata (tanpa supervisor): proses pengganti HARUS hidup setelah
+// proses lama mati — inilah yang bikin /restart tidak lagi mematikan bot
+// kalau dijalankan tanpa PM2/systemd.
+const respawnScript = join(tmpdir(), 'kizora-respawn-check.mjs');
+const respawnLog = join(tmpdir(), 'kizora-respawn-check.log');
+const restartModuleUrl = new URL('../src/utils/restart.js', import.meta.url).href;
+rmSync(respawnLog, { force: true });
+writeFileSync(
+  respawnScript,
+  [
+    `import { appendFileSync } from 'node:fs';`,
+    `const log = ${JSON.stringify(respawnLog)};`,
+    `try {`,
+    `  appendFileSync(log, 'parent pid=' + process.pid + ' pm2=' + (process.env.PM2_HOME||'-') + '\\n');`,
+    `  if (process.env.KIZORA_RESPAWN_DELAY_MS) {`,
+    `    await new Promise((r) => setTimeout(r, Number(process.env.KIZORA_RESPAWN_DELAY_MS)));`,
+    `    appendFileSync(log, 'child-alive pid=' + process.pid + '\\n');`,
+    `  } else {`,
+    `    const { restartBot } = await import(${JSON.stringify(restartModuleUrl)});`,
+    `    const r = restartBot({ delayMs: 200 });`,
+    `    appendFileSync(log, 'restart mode=' + r.mode + '\\n');`,
+    `  }`,
+    `} catch (e) {`,
+    `  appendFileSync(log, 'ERROR ' + (e && e.stack ? e.stack : e) + '\\n');`,
+    `}`
+  ].join('\n'),
+  'utf8'
+);
+// Env eksplisit tanpa var supervisor, supaya tes tidak bergantung pada
+// environment mesin yang menjalankan tes.
+const respawnEnv = { ...process.env };
+delete respawnEnv.PM2_HOME;
+delete respawnEnv.pm_id;
+delete respawnEnv.INVOCATION_ID;
+delete respawnEnv.JOURNAL_STREAM;
+// Jangan di-await: proses ini men-spawn proses lagi (stdio inherit), dan
+// pipe-nya dipegang proses cucu — polling log jauh lebih andal.
+const respawnProc = spawn(process.execPath, [respawnScript], {
+  cwd: tmpdir(),
+  stdio: 'ignore',
+  detached: true,
+  env: respawnEnv
+});
+respawnProc.unref();
+let respawnOut = '';
+for (let i = 0; i < 60; i++) {
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  if (existsSync(respawnLog)) {
+    respawnOut = readFileSync(respawnLog, 'utf8');
+    if (respawnOut.includes('child-alive')) break;
+  }
+}
+const parentPid = respawnOut.match(/parent pid=(\d+)/)?.[1];
+const childPid = respawnOut.match(/child-alive pid=(\d+)/)?.[1];
+check('proses pengganti hidup setelah restart tanpa supervisor', Boolean(childPid), respawnOut);
+check(
+  'proses pengganti PID berbeda dari proses lama',
+  Boolean(parentPid && childPid && parentPid !== childPid),
+  `parent=${parentPid} child=${childPid}`
+);
+rmSync(respawnScript, { force: true });
+rmSync(respawnLog, { force: true });
 
 console.log(`\n${passed} lulus, ${failed} gagal.`);
 if (failed > 0) process.exit(1);

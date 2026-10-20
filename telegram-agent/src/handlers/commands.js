@@ -4,7 +4,8 @@ import { cloneOrPullRepo, gitClient } from '../services/git.js';
 import { testConnection } from '../services/llm.js';
 import { cancelPendingApprovals } from '../services/agent.js';
 import { registerBotMenuDetailed, BOT_COMMANDS } from '../services/menu.js';
-import { syncAndRestart, checkSyncStatus, RESTART_EXIT_CODE } from '../services/sync.js';
+import { syncAndRestart, checkSyncStatus } from '../services/sync.js';
+import { restartBot, isUnderSupervisor } from '../utils/restart.js';
 import {
   createSkill,
   deleteSkill,
@@ -563,8 +564,18 @@ export function registerCommandHandlers(bot) {
   });
 
   bot.command('restart', async (ctx) => {
-    await ctx.reply('♻️ Me-restart bot...');
-    setTimeout(() => process.exit(RESTART_EXIT_CODE), 500);
+    // Balasan HARUS terkirim dulu — restartBot menjadwalkan proses keluar.
+    const supervised = isUnderSupervisor();
+    await ctx.reply(
+      [
+        '♻️ Me-restart bot...',
+        supervised
+          ? 'Supervisor (PM2/systemd) akan menyalakan bot lagi.'
+          : 'Tidak ada supervisor — bot menghidupkan proses baru sendiri.',
+        '⏳ Tunggu sekitar 5 detik, lalu kirim pesan lagi.'
+      ].join('\n')
+    );
+    restartBot();
   });
 
   bot.command('menu', async (ctx) => {

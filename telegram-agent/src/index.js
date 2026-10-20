@@ -2,6 +2,7 @@ import { CONFIG } from './config.js';
 import { loadState } from './storage.js';
 import { createBot } from './bot.js';
 import { registerBotMenu, registerBotMenuDetailed } from './services/menu.js';
+import { waitForPredecessor } from './utils/restart.js';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -56,6 +57,11 @@ async function main() {
     // jangan di-await: bot harus tetap bisa menerima pesan
     void retryMenuInBackground(bot.api);
   }
+
+  // Kalau proses ini hasil respawn (restart tanpa supervisor), tunggu proses
+  // lama berhenti polling Telegram dulu — dua proses polling = 409 Conflict
+  // dan grammY akan melempar error.
+  await waitForPredecessor();
 
   await bot.start();
 }

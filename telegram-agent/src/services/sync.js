@@ -10,9 +10,9 @@
  * 1. Deteksi file yang berbeda (rsync --dry-run / itemize).
  * 2. Kalau ada beda, backup direktori aktif ke backups/<timestamp>/.
  * 3. Sinkron src/ (dan file root yang relevan) dari workspace.
- * 4. Restart: kalau dijalankan di bawah PM2/systemd, proses di-restart oleh
- *    supervisor. Kalau tidak, proses ini sendiri keluar dengan kode 75
- *    (EX_TEMPFAIL) supaya wrapper npm/pm2 me-restart-nya.
+ * 4. Restart lewat restartBot(): kalau ada supervisor (PM2/systemd), dia
+ *    yang menangani via exit code 75; kalau tidak, proses pengganti
+ *    di-spawn dulu supaya bot tidak mati permanen.
  */
 
 import { execFile } from 'node:child_process';
@@ -20,8 +20,12 @@ import { existsSync, mkdirSync, rmSync, cpSync, readdirSync, statSync } from 'no
 import { join, dirname, resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { restartBot, RESTART_EXIT_CODE } from '../utils/restart.js';
 
 const execFileAsync = promisify(execFile);
+
+/** Re-export supaya konsumen lama tetap jalan. */
+export { RESTART_EXIT_CODE };
 
 /** Direktori bot yang sedang berjalan (induk dari src/). */
 export const BOT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -31,9 +35,6 @@ export const WORKSPACE_ROOT = join(BOT_ROOT, 'workspace');
 
 /** Direktori backup sinkronisasi. */
 export const BACKUP_ROOT = join(BOT_ROOT, 'backups');
-
-/** Kode keluar "coba lagi nanti" — dipakai wrapper untuk me-restart. */
-export const RESTART_EXIT_CODE = 75;
 
 /** Folder/file yang tidak boleh disalin dari workspace (data runtime bot). */
 const EXCLUDE_PATTERNS = [
@@ -190,13 +191,15 @@ export async function syncAndRestart({ workspaceRoot = WORKSPACE_ROOT, restart =
     };
   }
 
-  // Restart. Kalau ada supervisor (PM2/systemd), dia yang menangani.
-  // Kalau tidak, proses ini keluar dengan kode 75 supaya wrapper me-restart.
+  // Restart. Kalau ada supervisor (PM2/systemd), dia yang menangani via
+  // exit code 75. Kalau tidak, restartBot menyalakan proses pengganti —
+  // tanpa itu bot mati permanen setiap kali sync.
   console.log(`[sync] ${different.length} file berubah. Restart bot...`);
-  setTimeout(() => process.exit(RESTART_EXIT_CODE), 500);
+  const r = restartBot();
   return {
     synced: true,
     restarted: true,
+    restartMode: r.mode,
     files: different,
     backup,
     source: relative(BOT_ROOT, source),

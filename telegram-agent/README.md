@@ -294,6 +294,24 @@ systemctl status kizora-agent
 journalctl -u kizora-agent -f   # lihat log
 ```
 
+### Restart bot: dengan dan tanpa supervisor
+
+`/restart` (dan `/sync`, serta auto-restart setelah agent selesai) bekerja di
+dua situasi:
+
+- **Ada supervisor (PM2/systemd)** — bot keluar dengan kode 75 dan supervisor
+  yang menyalakan ulang. Deteksi otomatis lewat env `PM2_HOME`/`pm_id`
+  (PM2) atau `INVOCATION_ID`/`JOURNAL_STREAM` (systemd).
+- **Tanpa supervisor** (`npm start` biasa, nohup, double-click) — bot
+  menyalankan proses pengganti (detached) lebih dulu, menunggu proses lama
+  mati, lalu yang baru mulai polling. Tanpa mekanisme ini, bot akan mati
+  permanen setiap kali `/restart` ditekan. Proses baru menunggu sekitar
+  1 detik supaya tidak ada dua proses polling Telegram bersamaan
+  (Telegram menolak dengan error 409).
+
+Kalau setelah `/restart` bot tidak kembali hidup dalam ~10 detik, jalankan
+ulang manual: `npm start` (atau `pm2 restart kizora-agent`).
+
 ### Catatan keamanan VPS
 
 - Bot mengeksekusi shell command berdasarkan output LLM — jangan bagikan token bot atau akses VPS-nya
@@ -306,7 +324,7 @@ journalctl -u kizora-agent -f   # lihat log
 npm run smoke
 ```
 
-Menjalankan 36 pengecekan: list/read/write/edit file, penolakan path traversal, run command, git init/commit/push ke bare repo lokal, util teks, serta pendaftaran menu (validasi command, isolasi error per scope, tombol fallback). Tidak butuh token apa pun.
+Menjalankan 92 pengecekan: list/read/write/edit file, penolakan path traversal, run command, git init/commit/push ke bare repo lokal, git_pull dari clone kedua (kerja dari banyak mesin), util teks, pendaftaran menu (validasi command, isolasi error per scope, tombol fallback), skill service, serta restart bot — deteksi supervisor, exit code 75, dan respawn nyata tanpa supervisor. Tidak butuh token apa pun.
 
 ## Catatan keamanan
 
