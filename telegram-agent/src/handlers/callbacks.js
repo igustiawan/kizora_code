@@ -138,6 +138,20 @@ export function registerCallbackHandlers(bot) {
         return ctx.reply('Ketik: /skill add <nama skill>\nLalu kirim isi instruksinya.');
       }
 
+      if (action === 'skip') {
+        // User memilih "Nanti saja" saat ditawari pasang skill ke project.
+        await ctx.answerCallbackQuery({ text: 'Dilewati' });
+        try {
+          return await ctx.editMessageText(
+            'ℹ️ Skill tersimpan tanpa dipasang. Pasang nanti lewat /skills atau /skill attach <id>.'
+          );
+        } catch {
+          return ctx.reply(
+            'ℹ️ Skill tersimpan tanpa dipasang. Pasang nanti lewat /skills atau /skill attach <id>.'
+          );
+        }
+      }
+
       if (action.startsWith('attach:')) {
         const id = action.slice(7);
         const skill = findSkill(user, id);

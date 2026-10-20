@@ -3,6 +3,7 @@ import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { simpleGit } from 'simple-git';
+import { ensureCommitTitle } from '../utils/commit.js';
 
 const execAsync = promisify(exec);
 
@@ -135,8 +136,12 @@ export async function executeTool(name, args, workspace) {
       await git.add('.');
       const status = await git.status();
       if (!status.files.length) return 'Tidak ada perubahan untuk di-commit.';
-      const result = await git.commit(args.message);
-      return `Commit dibuat: ${result.commit}`;
+      // Selalu normalkan judul commit ke format Conventional Commits yang jelas,
+      // sama seperti jalur auto-push. Tanpa ini judul seperti "update"/"fix bug"
+      // akan lolos apa adanya dan riwayat git jadi tidak informatif.
+      const message = ensureCommitTitle(args.message);
+      const result = await git.commit(message);
+      return `Commit dibuat: ${result.commit}\nJudul: ${message.split('\n')[0]}`;
     }
 
     case 'git_push': {

@@ -206,6 +206,64 @@ export function mainMenuKeyboard() {
   };
 }
 
+/**
+ * Middleware: pastikan tombol menu (reply keyboard) selalu muncul setelah
+ * user menjalankan command apa pun, walau command itu sendiri tidak
+ * menyertakan reply_markup.
+ *
+ * Ini menyelesaikan keluhan "tombol menu tidak pernah muncul": user tidak
+ * perlu ingat menjalankan /start dulu — cukup satu command apa saja
+ * (mis. /settings, /repos, /project), dan tombol di bawah kolom ketik
+ * langsung tampil. Command yang memang menentukan reply_markup sendiri
+ * (inline keyboard atau remove_keyboard dari /tutup) tidak ditimpa.
+ */
+export function ensureMenuKeyboardMiddleware() {
+  return async (ctx, next) => {
+    const text = ctx.message?.text;
+    if (typeof text === 'string' && text.startsWith('/') && typeof ctx.reply === 'function') {
+      const originalReply = ctx.reply.bind(ctx);
+      ctx.reply = (message, extra = {}) =>
+        originalReply(message, {
+          ...extra,
+          // hanya isi kalau command tidak menentukan reply_markup sendiri
+          reply_markup: extra.reply_markup ?? replyMenuKeyboard()
+        });
+    }
+    await next();
+  };
+}
+
+/**
+ * Tawarkan pemasangan skill ke project mana.
+ *
+ * Dipakai setelah /skill add, /skill import, dan /skill attach: user langsung
+ * dapat tombol pilih project (bukan harus ingat perintah attach terpisah).
+ * Selalu menampilkan tombol pilihan + opsi "Nanti saja" supaya user benar-benar
+ * bisa memilih skill ini mau dipasang ke project yang mana.
+ */
+export async function offerAttach(ctx, user, skill, prefix = '') {
+  const head = prefix ? `${prefix}\n\n` : '';
+  const choices = projectChoices(user);
+
+  if (!choices.length) {
+    return ctx.reply(
+      `${head}ℹ️ Belum ada project aktif. Pilih project dulu lewat /repos, ` +
+        `lalu pasang skill ini dengan /skill attach ${skill.id}.`
+    );
+  }
+
+  return ctx.reply(`${head}📌 Pasang "${skill.name}" ke project mana?`, {
+    reply_markup: {
+      inline_keyboard: [
+        ...choices.map((repo, i) => [
+          { text: `📌 ${repo}`, callback_data: `skill:pick:${skill.id}:${i}` }
+        ]),
+        [{ text: '⏭️ Nanti saja', callback_data: 'skill:skip' }]
+      ]
+    }
+  });
+}
+
 export function registerCommandHandlers(bot) {
   bot.command('start', async (ctx) => {
     await ctx.reply(
@@ -545,31 +603,40 @@ export function registerCommandHandlers(bot) {
         const { name, content, path: from } = readSkillFromFile(user.workspace, path);
         const { skill, updated } = createSkill(user, { name, content });
         saveState();
-        return ctx.reply(
-          `✅ Skill "${skill.name}" ${updated ? 'diperbarui' : 'disimpan'} (dari ${from}).\n` +
-            `Pasang ke project aktif: /skill attach ${skill.id}`
+        // Langsung tawarkan pemilihan project (skill bisa dipilih mau ke mana).
+        return offerAttach(
+          ctx,
+          user,
+          skill,
+          `✅ Skill "${skill.name}" ${updated ? 'diperbarui' : 'diimpor'} dari ${from}.`
         );
       } catch (err) {
         return ctx.reply(`❌ ${err.message}`);
       }
     }
 
-    // /skill attach <id> -> pasang ke project aktif
+    // /skill attach <id> [owner/repo] -> pasang ke project pilihan
     if (sub === 'attach') {
       const id = rest[0];
-      if (!id) return ctx.reply('Pakai: /skill attach <id> (lihat daftar: /skills)');
+      const targetRepo = rest.slice(1).join(' ').trim();
+      if (!id) return ctx.reply('Pakai: /skill attach <id> [owner/repo] (lihat daftar: /skills)');
       const skill = findSkill(user, id);
       if (!skill) return ctx.reply(`❌ Skill "${id}" tidak ditemukan. Daftar: /skills`);
-      const choices = projectChoices(user);
-      if (!choices.length) return ctx.reply('⚠️ Belum ada project. Pilih dulu: /repos');
-      const r = attachSkill(user, skill.id, choices[0]);
-      saveState();
-      if (!r.ok) return ctx.reply(`❌ ${r.reason}`);
-      return ctx.reply(
-        r.already
-          ? `ℹ️ "${skill.name}" sudah terpasang di ${r.project}.`
-          : `✅ "${skill.name}" dipasang ke ${r.project}.`
-      );
+
+      // Kalau project disebut eksplisit, pasang langsung ke situ.
+      if (targetRepo) {
+        const r = attachSkill(user, skill.id, targetRepo);
+        saveState();
+        if (!r.ok) return ctx.reply(`❌ ${r.reason}`);
+        return ctx.reply(
+          r.already
+            ? `ℹ️ "${skill.name}" sudah terpasang di ${r.project}.`
+            : `✅ "${skill.name}" dipasang ke ${r.project}.`
+        );
+      }
+
+      // Tanpa project -> tampilkan tombol pilih project.
+      return offerAttach(ctx, user, skill);
     }
 
     // /skill detach <id> -> lepas dari project aktif (atau semua kalau tidak ada)

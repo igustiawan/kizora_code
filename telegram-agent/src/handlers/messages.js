@@ -1,7 +1,7 @@
 import { getUser, saveState } from '../storage.js';
 import { runAgent } from '../services/agent.js';
 import { createSkill } from '../services/skills.js';
-import { replyMenuKeyboard, CLOSE_MENU_TEXT } from './commands.js';
+import { replyMenuKeyboard, CLOSE_MENU_TEXT, offerAttach } from './commands.js';
 
 export function registerMessageHandlers(bot) {
   bot.on('message:text', async (ctx) => {
@@ -46,11 +46,8 @@ export function registerMessageHandlers(bot) {
       try {
         const { skill, updated } = createSkill(user, { name, content: text });
         saveState();
-        await ctx.reply(
-          `✅ Skill "${skill.name}" ${updated ? 'diperbarui' : 'disimpan'}.\n\n` +
-            `Pasang ke project aktif: /skill attach ${skill.id}\n` +
-            'Lihat semua skill: /skills'
-        );
+        // Setelah tersimpan, langsung tawarkan mau dipasang ke project mana.
+        await offerAttach(ctx, user, skill, `✅ Skill "${skill.name}" ${updated ? 'diperbarui' : 'disimpan'}.`);
       } catch (err) {
         await ctx.reply(`❌ ${err.message}`);
       }

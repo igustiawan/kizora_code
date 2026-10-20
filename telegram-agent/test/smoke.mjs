@@ -15,6 +15,8 @@ import {
   HELP_TEXT_FOR_TEST as HELP_TEXT,
   mainMenuKeyboard,
   replyMenuKeyboard,
+  ensureMenuKeyboardMiddleware,
+  offerAttach,
   CLOSE_MENU_TEXT
 } from '../src/handlers/commands.js';
 
@@ -106,6 +108,11 @@ check('git_status melihat file baru', statusBefore.includes('hello.txt'));
 
 const committed = await executeTool('git_commit', { message: 'init smoke' }, ws);
 check('commit dibuat', committed.includes('Commit dibuat'));
+// git_commit harus menormalkan judul ke Conventional Commits (bukan "init smoke" mentah)
+check(
+  'git_commit menormalkan judul commit',
+  committed.includes('Judul: chore: init smoke')
+);
 
 const statusAfter = await executeTool('git_status', {}, ws);
 check('working tree bersih setelah commit', statusAfter.includes('bersih'));
@@ -215,6 +222,73 @@ check(
 
 const commandsSrcFull = readFileSync(new URL('../src/handlers/commands.js', import.meta.url), 'utf8');
 check('command /tutup terdaftar di bot', commandsSrcFull.includes("bot.command('tutup'"));
+
+// --- middleware menu: command apa pun memunculkan tombol menu ---
+console.log('middleware menu:');
+check('ensureMenuKeyboardMiddleware diekspor', typeof ensureMenuKeyboardMiddleware === 'function');
+check('offerAttach diekspor', typeof offerAttach === 'function');
+
+// command tanpa reply_markup -> otomatis dapat reply keyboard
+let mwCaptured = null;
+const mwCtx = {
+  message: { text: '/project' },
+  reply: async (msg, extra) => {
+    mwCaptured = { msg, extra };
+  }
+};
+await ensureMenuKeyboardMiddleware()(mwCtx, async () => {
+  await mwCtx.reply('info project');
+});
+check(
+  'command tanpa markup otomatis dapat reply keyboard',
+  Array.isArray(mwCaptured?.extra?.reply_markup?.keyboard) &&
+    mwCaptured.extra.reply_markup.keyboard.length > 0
+);
+
+// inline keyboard yang sudah ada tidak boleh ditimpa
+let inlineCaptured = null;
+const inlineCtx = {
+  message: { text: '/settings' },
+  reply: async (msg, extra) => {
+    inlineCaptured = extra;
+  }
+};
+await ensureMenuKeyboardMiddleware()(inlineCtx, async () => {
+  await inlineCtx.reply('settings', { reply_markup: { inline_keyboard: [] } });
+});
+check(
+  'inline keyboard tidak ditimpa middleware',
+  JSON.stringify(inlineCaptured?.reply_markup || {}).includes('inline_keyboard')
+);
+
+// /tutup (remove_keyboard) juga tidak boleh ditimpa
+let closeCaptured = null;
+const closeCtx = {
+  message: { text: '/tutup' },
+  reply: async (msg, extra) => {
+    closeCaptured = extra;
+  }
+};
+await ensureMenuKeyboardMiddleware()(closeCtx, async () => {
+  await closeCtx.reply('ditutup', { reply_markup: { remove_keyboard: true } });
+});
+check(
+  'remove_keyboard (/tutup) tidak ditimpa middleware',
+  closeCaptured?.reply_markup?.remove_keyboard === true
+);
+
+// pesan biasa (bukan command) tidak boleh dipaksa munculkan menu
+let plainTouched = false;
+const plainCtx = {
+  message: { text: 'tolong refactor file ini' },
+  reply: async () => {
+    plainTouched = true;
+  }
+};
+await ensureMenuKeyboardMiddleware()(plainCtx, async () => {
+  await plainCtx.reply('sedang kerja');
+});
+check('pesan biasa tidak dipaksa pakai menu keyboard', plainTouched === true);
 
 // --- skill handlers (tombol 🧠 Skills di /settings harus punya handler) ---
 console.log('skills:');

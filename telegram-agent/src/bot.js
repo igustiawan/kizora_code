@@ -1,7 +1,7 @@
 import { Bot } from 'grammy';
 import { CONFIG } from './config.js';
 import { isAllowed } from './storage.js';
-import { registerCommandHandlers } from './handlers/commands.js';
+import { registerCommandHandlers, ensureMenuKeyboardMiddleware } from './handlers/commands.js';
 import { registerCallbackHandlers } from './handlers/callbacks.js';
 import { registerMessageHandlers } from './handlers/messages.js';
 
@@ -16,6 +16,9 @@ export function createBot() {
     }
     await next();
   });
+
+  // Setelah /command apa pun, pastikan tombol menu bawah kolom ketik tampil.
+  bot.use(ensureMenuKeyboardMiddleware());
 
   registerCommandHandlers(bot);
   registerCallbackHandlers(bot);
