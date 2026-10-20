@@ -19,6 +19,7 @@ export const BOT_COMMANDS = [
   { command: 'autopush', description: 'Auto commit+push: on | off' },
   { command: 'connect', description: 'Konek akun GitHub (token)' },
   { command: 'repos', description: 'Pilih project (auto clone/pull)' },
+  { command: 'pull', description: 'Tarik perubahan terbaru dari remote' },
   { command: 'project', description: 'Info project aktif' },
   { command: 'skills', description: 'Kelola skill (instruksi per project)' },
   { command: 'skill', description: 'Tambah/pasang/lepas/hapus skill' },

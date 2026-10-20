@@ -121,6 +121,31 @@ export async function executeTool(name, args, workspace) {
       }
     }
 
+    case 'git_pull': {
+      const git = simpleGit(workspace);
+      const result = await git.pull();
+      const s = result.summary || {};
+      const changed = (s.changes || 0) + (s.deletions || 0);
+      if (changed === 0) {
+        return 'Already up to date. (tidak ada perubahan baru di remote)';
+      }
+      // simple-git mengembalikan files sebagai array string path;
+      // insertions/deletions adalah objek { path: jumlah }.
+      const ins = result.insertions || {};
+      const del = result.deletions || {};
+      const files = (result.files || []).slice(0, 30).map((f) => {
+        const path = typeof f === 'string' ? f : f.path;
+        return `  ${path} (+${ins[path] || 0}/-${del[path] || 0})`;
+      });
+      return [
+        `Pull selesai: ${s.changes ?? 0} file berubah, +${s.insertions ?? 0}/-${s.deletions ?? 0} baris.`,
+        ...files,
+        (result.files || []).length > 30 ? `  (+${result.files.length - 30} file lainnya)` : ''
+      ]
+        .filter(Boolean)
+        .join('\n');
+    }
+
     case 'git_status': {
       const git = simpleGit(workspace);
       const status = await git.status();

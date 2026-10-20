@@ -132,6 +132,45 @@ check('push ke remote sukses', pushResult.pushed === true);
 const log = await git.log();
 check('remote menerima commit', log.latest?.message === 'chore: update');
 
+// --- git_pull: kerja dari banyak mesin ---
+console.log('git_pull:');
+check('command /pull terdaftar di menu', BOT_COMMANDS.some((c) => c.command === 'pull'));
+check('/pull disebut di HELP_TEXT', HELP_TEXT.includes('/pull '));
+check(
+  'command /pull terdaftar di bot',
+  readFileSync(new URL('../src/handlers/commands.js', import.meta.url), 'utf8').includes("bot.command('pull'")
+);
+
+// simulasi mesin kedua: clone bare repo, ubah file, push
+const ws2 = mkdtempSync(join(tmpdir(), 'kizora-smoke2-'));
+const git2 = simpleGit(ws2);
+await git2.clone(bare, ws2);
+await git2.addConfig('user.email', 'smoke2@test.local');
+await git2.addConfig('user.name', 'Smoke Test 2');
+writeFileSync(join(ws2, 'hello.txt'), 'hello dari mesin 2');
+writeFileSync(join(ws2, 'mesin2.txt'), 'file baru dari mesin 2');
+await git2.add('.');
+await git2.commit('feat: perubahan dari mesin kedua');
+await git2.push(); // kirim ke bare repo supaya mesin 1 bisa menariknya
+
+// mesin 1 belum lihat perubahan
+check(
+  'mesin 1 belum punya file mesin2',
+  !existsSync(join(ws, 'mesin2.txt'))
+);
+
+const pullResult = await executeTool('git_pull', {}, ws);
+check('git_pull melaporkan file berubah', pullResult.includes('file berubah'));
+check('git_pull menyebut mesin2.txt', pullResult.includes('mesin2.txt'));
+check(
+  'isi hello.txt ter-update dari remote',
+  readFileSync(join(ws, 'hello.txt'), 'utf8') === 'hello dari mesin 2'
+);
+check('file baru dari mesin 2 muncul', existsSync(join(ws, 'mesin2.txt')));
+
+const pullAgain = await executeTool('git_pull', {}, ws);
+check('git_pull kedua -> already up to date', pullAgain.includes('Already up to date'));
+
 // --- utils ---
 console.log('utils:');
 const chunks = chunkText('x'.repeat(9500), 4000);

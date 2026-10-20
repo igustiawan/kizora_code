@@ -1,6 +1,6 @@
 import { getUser, saveState } from '../storage.js';
 import { getAuthenticatedLogin, listRepos } from '../services/github.js';
-import { cloneOrPullRepo } from '../services/git.js';
+import { cloneOrPullRepo, gitClient } from '../services/git.js';
 import { testConnection } from '../services/llm.js';
 import { cancelPendingApprovals } from '../services/agent.js';
 import { registerBotMenuDetailed, BOT_COMMANDS } from '../services/menu.js';
@@ -32,6 +32,7 @@ const HELP_TEXT = [
   '',
   '/connect <github_token> — konek akun GitHub',
   '/repos — pilih project (auto clone/pull)',
+  '/pull — tarik perubahan terbaru dari remote (kerja dari banyak mesin)',
   '/project — info project aktif',
   '/skills — kelola skill (instruksi khusus per project)',
   '/skill add <nama> — import skill baru (kirim isinya setelah ini)',
@@ -436,6 +437,58 @@ export function registerCommandHandlers(bot) {
         ctx.chat.id,
         status.message_id,
         `❌ Gagal mengambil repo: ${err.message}`
+      );
+    }
+  });
+
+  bot.command('pull', async (ctx) => {
+    const user = getUser(ctx.from.id);
+    if (!user.workspace) {
+      return ctx.reply('⚠️ Belum ada project aktif. Pakai /repos dulu.');
+    }
+    const status = await ctx.reply(`📥 Pull ${user.selectedRepo}...`);
+    try {
+      const result = await gitClient(user.workspace).pull();
+      const s = result.summary || {};
+      const changed = (s.changes || 0) + (s.deletions || 0);
+      if (changed === 0) {
+        return ctx.api.editMessageText(
+          ctx.chat.id,
+          status.message_id,
+          `✅ ${user.selectedRepo} sudah up to date.`
+        );
+      }
+      // simple-git: files = array string path, insertions/deletions = { path: jumlah }
+      const ins = result.insertions || {};
+      const del = result.deletions || {};
+      const files = (result.files || [])
+        .slice(0, 15)
+        .map((f) => {
+          const path = typeof f === 'string' ? f : f.path;
+          return `  • ${path} (+${ins[path] || 0}/-${del[path] || 0})`;
+        });
+      await ctx.api.editMessageText(
+        ctx.chat.id,
+        status.message_id,
+        [
+          `✅ Pull selesai: ${s.changes ?? 0} file berubah (+${s.insertions ?? 0}/-${s.deletions ?? 0} baris)`,
+          ...files,
+          (result.files || []).length > 15 ? `  (+${result.files.length - 15} file lainnya)` : ''
+        ]
+          .filter(Boolean)
+          .join('\n')
+      );
+    } catch (err) {
+      await ctx.api.editMessageText(
+        ctx.chat.id,
+        status.message_id,
+        [
+          `❌ Pull gagal: ${err.message}`,
+          '',
+          'Kalau ada conflict (perubahan lokal bentrok dengan remote):',
+          '1. selesaikan conflict dari mesin lain, atau',
+          '2. hapus folder workspace project ini lalu pilih ulang di /repos.'
+        ].join('\n')
       );
     }
   });

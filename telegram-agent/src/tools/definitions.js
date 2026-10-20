@@ -78,6 +78,15 @@ export const toolDefinitions = [
   {
     type: 'function',
     function: {
+      name: 'git_pull',
+      description:
+        'Tarik perubahan terbaru dari remote GitHub (git pull). WAJIB dipakai di awal kalau project ini dikerjakan dari banyak mesin/user, supaya perubahanmu tidak bentrok dengan yang sudah di-push dari tempat lain.',
+      parameters: { type: 'object', properties: {} }
+    }
+  },
+  {
+    type: 'function',
+    function: {
       name: 'git_status',
       description: 'Tampilkan status working tree git (file yang berubah).',
       parameters: { type: 'object', properties: {} }

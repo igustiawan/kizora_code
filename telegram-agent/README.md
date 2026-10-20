@@ -6,7 +6,8 @@ Bot Telegram coding-agent: konek GitHub, pilih project, lalu kirim prompt — ag
 
 - **Setting LLM OpenAI-compatible** — base URL, token, model (OpenAI, OpenRouter, DeepSeek, Groq, Ollama, vLLM, dll)
 - **Konek GitHub** — validasi token, list repo, clone/pull otomatis ke workspace lokal
-- **Agentic loop** — LLM pakai tools: `list_files`, `read_file`, `write_file`, `edit_file`, `run_command`, `git_status`, `git_commit`, `git_push`
+- **Agentic loop** — LLM pakai tools: `list_files`, `read_file`, `write_file`, `edit_file`, `run_command`, `git_status`, `git_commit`, `git_push`, `git_pull`
+- **Kerja dari banyak mesin** — `/pull` (atau tool `git_pull`) menarik perubahan terbaru dari remote sebelum agent mulai mengedit, supaya tidak bentrok dengan yang sudah di-push dari laptop/VPS lain. Saat pilih project di `/repos`, repo juga otomatis di-pull kalau sudah ada.
 - **Mode akses**
   - `ASK` — setiap aksi yang mengubah sesuatu (tulis file, edit, command, commit, push) minta konfirmasi via tombol ✅/❌ dulu. Aksi read-only (baca file, list, git status) jalan langsung.
   - `FULL` — semua aksi langsung dijalankan tanpa konfirmasi
@@ -73,10 +74,12 @@ npm start
 | `/autopush on\|off` | Auto commit+push setelah selesai |
 | `/connect <token>` | Konek GitHub |
 | `/repos` | Pilih project |
+| `/pull` | Tarik perubahan terbaru dari remote (kerja dari banyak mesin) |
 | `/project` | Info project aktif |
 | `/cancel` | Batalkan tugas berjalan |
 | `/reset` | Hapus riwayat percakapan |
 | `/menu` | Daftarkan ulang menu `/` (kalau tidak muncul) |
+| `/tutup` | Tutup tombol menu di bawah kolom ketik |
 | `/help` | Bantuan |
 
 ### Menu `/` di Telegram
